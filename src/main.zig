@@ -1,6 +1,7 @@
 const std = @import("std");
 const Linenoise = @import("linenoise").Linenoise;
 const lexer = @import("lexer.zig");
+const SymTab = @import("symtab.zig");
 
 var linenoize: Linenoise = undefined;
 
@@ -15,6 +16,7 @@ pub fn main() anyerror!void {
 
     try initGlobals(alloca, interative_mode);
 
+    defer SymTab.globalSymbolTable().deinit();
     defer linenoize.deinit();
     defer linenoize.history.save("ksh-history") catch |err| std.debug.print("Failed to save history, {}\n", .{err});
 
@@ -27,7 +29,7 @@ pub fn main() anyerror!void {
 
 pub fn kzh_loop(alloca: *std.mem.Allocator) !void {
     while (true) {
-        if (try linenoize.linenoise("PS1: ")) |input| {
+        if (try linenoize.linenoise(SymTab.globalSymbolTable().local_lookup("PS1").?.str)) |input| {
             defer alloca.free(input);
 
             const tokens = try lexer.tokenize(alloca, input);
@@ -47,6 +49,7 @@ pub fn kzh_loop(alloca: *std.mem.Allocator) !void {
 }
 
 pub fn initGlobals(alloc: *std.mem.Allocator, interative_mode: bool) !void {
+    try SymTab.initGlobalSymbolTable(alloc);
     if (interative_mode) {
         // linenoize setup
         linenoize = Linenoise.init(alloc);
