@@ -1,5 +1,6 @@
 const std = @import("std");
 const Linenoise = @import("linenoise").Linenoise;
+const lexer = @import("lexer.zig");
 
 var linenoize: Linenoise = undefined;
 
@@ -29,8 +30,15 @@ pub fn kzh_loop(alloca: *std.mem.Allocator) !void {
         if (try linenoize.linenoise("PS1: ")) |input| {
             defer alloca.free(input);
 
-            std.debug.print("input: {s}\n", .{input});
-
+            const tokens = try lexer.tokenize(alloca, input);
+            defer alloca.free(tokens);
+            for (tokens) |token| {
+                if (token.type_ != lexer.TokenType.STRING) {
+                    std.debug.print("{}\n", .{token.type_});
+                } else {
+                    std.debug.print("token: type {} data {s}\n", .{ token.type_, token.data.? });
+                }
+            }
             linenoize.history.add(input) catch |err| switch (err) {
                 else => std.debug.print("history: {}\n", .{err}),
             };
