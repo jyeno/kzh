@@ -21,13 +21,13 @@ pub fn main() anyerror!void {
     defer linenoize.history.save("ksh-history") catch |err| std.debug.print("Failed to save history, {}\n", .{err});
 
     if (interative_mode) {
-        kzh_loop(alloca) catch |err| switch (err) {
+        kzhLoop(alloca) catch |err| switch (err) {
             else => std.debug.print("{}\n", .{err}),
         };
     }
 }
 
-pub fn kzh_loop(alloca: *std.mem.Allocator) !void {
+pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
     while (true) {
         if (try linenoize.linenoise(SymTab.globalSymbolTable().local_lookup("PS1").?.str)) |input| {
             defer alloca.free(input);

@@ -118,7 +118,7 @@ pub fn globalSymbolTable() *SymTab {
 
 /// Initializes the global symbol table, with the contents std.os.environ
 pub fn initGlobalSymbolTable(allocator: *std.mem.Allocator) !void {
-    if (global_sym_tab) |symtab| {} else {
+    if (global_sym_tab == null) {
         global_sym_tab = try allocator.create(SymTab);
         global_sym_tab.?.* = SymTab.init(allocator, null);
         const environ = std.os.environ;

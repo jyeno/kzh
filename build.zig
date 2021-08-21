@@ -16,8 +16,7 @@ pub fn build(b: *zbs.Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
-    const linenoise = zbs.Pkg{ .name = "linenoise", .path = "deps/linenoize/src/main.zig" };
-    exe.addPackage(linenoise);
+    exe.addPackage(.{ .name = "linenoise", .path = .{ .path = "deps/linenoize/src/main.zig" } });
 
     exe.install();
 
