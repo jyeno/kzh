@@ -1,9 +1,11 @@
+// TODO ter um sistema de hint que da hint das coisas que tem autocomplete
 const std = @import("std");
 const Linenoise = @import("linenoise").Linenoise;
-const lexer = @import("lexer.zig");
+const Parser = @import("parse.zig").Parser;
 const SymTab = @import("symtab.zig");
+const kzhExit = @import("builtins/exit.zig").kzhExit;
 
-var linenoize: Linenoise = undefined;
+// var linenoize: Linenoise = undefined;
 
 pub fn main() anyerror!void {
     const interative_mode = true;
@@ -13,12 +15,12 @@ pub fn main() anyerror!void {
         const leaked = gpa.deinit();
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
+    // defer linenoize.deinit();
 
-    try initGlobals(alloca, interative_mode);
+    // try initGlobals(alloca, interative_mode);
+    // defer kzhExit([][]const u8);
 
-    defer SymTab.globalSymbolTable().deinit();
-    defer linenoize.deinit();
-    defer linenoize.history.save("ksh-history") catch |err| std.debug.print("Failed to save history, {}\n", .{err});
+    // defer linenoize.history.save("ksh-history") catch |err| std.debug.print("Failed to save history, {}\n", .{err});
 
     if (interative_mode) {
         kzhLoop(alloca) catch |err| switch (err) {
@@ -28,34 +30,42 @@ pub fn main() anyerror!void {
 }
 
 pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
+    _ = alloca;
     while (true) {
-        if (try linenoize.linenoise(SymTab.globalSymbolTable().local_lookup("PS1").?.str)) |input| {
-            defer alloca.free(input);
+        var algo: [256]u8 = undefined;
+        const stdin = std.io.getStdIn().reader();
+        if (try stdin.readUntilDelimiterOrEof(&algo, '\n')) |input| {
+            // if (try linenoize.linenoise(SymTab.globalSymbolTable().local_lookup("PS1").?.str)) |input| {
+            // defer alloca.free(input);
 
-            const tokens = try lexer.tokenize(alloca, input);
-            defer alloca.free(tokens);
-            for (tokens) |token| {
-                if (token.type_ != lexer.TokenType.STRING) {
-                    std.debug.print("{}\n", .{token.type_});
-                } else {
-                    std.debug.print("token: type {} data {s}\n", .{ token.type_, token.data.? });
-                }
-            }
-            linenoize.history.add(input) catch |err| switch (err) {
-                else => std.debug.print("history: {}\n", .{err}),
+            // maybe use buffer to now alloc a lot of times?
+            // var buffer: [2046]u8 = undefined;
+            // var fba = std.heap.FixedBufferAllocator.init(&buffer);
+            var parser = Parser.init(alloca, input);
+            var program = parser.parse() catch |err| {
+                std.debug.print("err: {}\n", .{err});
+                continue;
             };
+            defer program.deinit(alloca);
+
+            program.print();
+
+            // linenoize.history.add(input) catch |err| switch (err) {
+            //     else => std.debug.print("history: {}\n", .{err}),
+            // };
+            break;
         }
     }
 }
 
-pub fn initGlobals(alloc: *std.mem.Allocator, interative_mode: bool) !void {
-    try SymTab.initGlobalSymbolTable(alloc);
-    if (interative_mode) {
-        // linenoize setup
-        linenoize = Linenoise.init(alloc);
-        linenoize.multiline_mode = true;
-        linenoize.history.load("ksh-history") catch |err| switch (err) {
-            else => std.debug.print("Failed to load history, {}\n", .{err}),
-        };
-    }
-}
+// pub fn initGlobals(alloc: *std.mem.Allocator, interative_mode: bool) !void {
+//     try SymTab.initGlobalSymbolTable(alloc);
+//     if (interative_mode) {
+//         // linenoize setup
+//         linenoize = Linenoise.init(alloc);
+//         linenoize.multiline_mode = true;
+//         linenoize.history.load("ksh-history") catch |err| switch (err) {
+//             else => std.debug.print("Failed to load history, {}\n", .{err}),
+//         };
+//     }
+// }
