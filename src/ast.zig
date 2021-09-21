@@ -4,9 +4,9 @@ const std = @import("std");
 
 /// Representation of the position
 pub const Position = struct {
-    offset: u16,
-    line: u16,
-    column: u16,
+    offset: u16 = 0,
+    line: u16 = 1,
+    column: u16 = 1,
 };
 
 /// Range of two positions
@@ -139,8 +139,8 @@ pub const Node = struct {
         pub const Pipeline = struct {
             and_or_cmd_list: AndOrCmdList = .{ .kind = .PIPELINE },
             commands: []*Command,
-            has_bang: bool = false,
-            bang_pos: ?Position = null,
+            has_bang: bool,
+            bang_pos: ?Position,
 
             pub fn deinit(self: *Pipeline, allocator: *std.mem.Allocator) void {
                 for (self.commands) |cmd| {
@@ -236,11 +236,11 @@ pub const Node = struct {
             command: Command = .{ .kind = .SIMPLE_COMMAND },
             name: ?*Word,
             args: ?[]*Word = null,
-            io_redir: ?[]IORedir = null,
-            assigns: ?[]Assign = null,
+            io_redirs: ?[]*IORedir = null,
+            assigns: ?[]*Assign = null,
 
             pub fn isEmpty(self: *SimpleCommand) bool {
-                return !(self.name != null or self.io_redir != null or self.assigns != null);
+                return self.name == null and self.io_redirs == null and self.assigns == null;
             }
 
             pub fn deinit(self: *SimpleCommand, allocator: *std.mem.Allocator) void {
@@ -251,12 +251,41 @@ pub const Node = struct {
                     }
                     allocator.free(args);
                 }
-                // TODO deinit io_redir and assigns
+                if (self.assigns) |assignments| {
+                    for (assignments) |assign| {
+                        // TODO deinit word
+                        allocator.destroy(assign);
+                    }
+                    allocator.free(assignments);
+                }
+                if (self.io_redirs) |io_redirects| {
+                    for (io_redirects) |io_redir| {
+                        allocator.destroy(io_redir);
+                    }
+                    allocator.free(io_redirects);
+                }
                 allocator.destroy(self);
             }
 
             pub fn print(self: *SimpleCommand) void {
                 std.debug.print("simple_command:\n", .{});
+                if (self.io_redirs) |io_redirects| {
+                    for (io_redirects) |io_redir| {
+                        _ = io_redir;
+                        std.debug.print("         io_redir op: {} name: {s} io_num: {} op_range: {}\n", .{ io_redir.op, io_redir.name.cast(Word.WordKind.STRING).?.str, io_redir.io_num, io_redir.op_range });
+                    }
+                }
+                if (self.assigns) |assignments| {
+                    for (assignments) |assign| {
+                        std.debug.print("         assign name: {s} ({})  value:\n   ", .{ assign.name, assign.name_range });
+                        if (assign.value) |v| {
+                            v.print();
+                        } else {
+                            std.debug.print("\"\"", .{});
+                        }
+                        std.debug.print("\n", .{});
+                    }
+                }
                 if (self.name) |word_name| {
                     word_name.print();
                 }
@@ -265,7 +294,6 @@ pub const Node = struct {
                         arg.print();
                     }
                 }
-                // TODO others prints
             }
         };
     };
@@ -313,7 +341,7 @@ pub const Word = struct {
         word: Word = .{ .kind = .STRING },
         str: []const u8,
         is_single_quoted: bool = false,
-        range: Range,
+        range: ?Range = null,
 
         pub fn print(self: *WordString) void {
             std.debug.print("word_string {s}  is_single_quoted ({}) range ({})\n", .{ self.str, self.is_single_quoted, self.range });
@@ -322,29 +350,31 @@ pub const Word = struct {
 };
 
 pub const IORedir = struct {
-    io_num: i8 = -1,
-    name: Word,
-    here_doc: ?[]Word = null,
+    io_num: ?u8 = null,
+    name: *Word,
+    here_doc: ?[]*Word = null,
     io_num_pos: ?Position = null,
     op_range: Range,
     op: IORedirKind,
 
+    usingnamespace IORedirKind;
+
     pub const IORedirKind = enum {
         IO_LESS,
-        IO_DLESS,
-        IO_LESSAND,
-        IO_DLESSDASH,
-        IO_LESSGREAT,
+        IO_DOUBLE_LESS,
+        IO_LESS_AND,
+        IO_DOUBLE_LESS_DASH,
+        IO_LESS_GREAT,
         IO_GREAT,
-        IO_DGREAT,
-        IO_GREATAND,
+        IO_DOUBLE_GREAT,
+        IO_GREAT_AND,
         IO_CLOBBER,
     };
 };
 
 pub const Assign = struct {
-    name: []const u8, // why not word?
-    value: Word,
+    name: []const u8,
+    value: ?*Word,
     name_range: Range,
     equal_pos: Position,
 };
