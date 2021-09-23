@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtins = @import("builtins.zig").builtins;
 const ast = @import("ast.zig");
 const Node = ast.Node;
 const AndOrCmdList = Node.AndOrCmdList;
@@ -70,7 +71,9 @@ fn runSimpleCommand(simple_command: *Command.SimpleCommand) !u8 {
 }
 
 fn runProcess(argv: [][]const u8) !u8 {
-    _ = argv;
-    // do nothing yet
-    return 0;
+    if (builtins.get(argv[0])) |builtin| {
+        return builtin(argv);
+    }
+
+    return 1;
 }
