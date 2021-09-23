@@ -132,6 +132,8 @@ pub const Node = struct {
             std.debug.print("   - ", .{});
             if (self.cast(.PIPELINE)) |pipeline| {
                 pipeline.print();
+            } else if (self.cast(.BINARY_OP)) |binary_op| {
+                binary_op.print();
             } else {
                 unreachable;
             }
@@ -175,15 +177,12 @@ pub const Node = struct {
 
             pub fn deinit(self: *BinaryOp, allocator: *std.mem.Allocator) void {
                 self.left.deinit(allocator);
-                allocator.destroy(self.left);
                 self.right.deinit(allocator);
-                allocator.destroy(self.right);
                 allocator.destroy(self);
             }
 
             pub fn print(self: *BinaryOp) void {
-                _ = self;
-                unreachable;
+                std.debug.print("binary_op ({}) {} left: {} right: {}\n", .{ self.op_range, self.kind, self.left, self.right });
             }
         };
     };
