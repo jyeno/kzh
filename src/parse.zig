@@ -47,18 +47,52 @@ pub const Parser = struct {
     }
 
     fn commandList(self: *Self) !*Node.CommandList {
+        const and_or_cmd_list = try self.andOrCmdList();
+
         var command_list = try self.allocator.create(Node.CommandList);
-        command_list.* = .{ .and_or_cmd_list = try self.andOrCmdList() }; // is_async by now is false, after getting it to work I will fix it
+        command_list.* = .{ .and_or_cmd_list = and_or_cmd_list };
+
+        const separator_pos = self.currentPos;
+        if (self.separatorOperator()) |separator| {
+            if (separator == '&') {
+                command_list.is_async = true;
+            }
+            command_list.separator_pos = separator_pos;
+            _ = self.readChar();
+        }
+
         return command_list;
     }
 
-    fn andOrCmdList(self: *Self) !*AndOrCmdList {
+    const errors = error{
+        OutOfMemory,
+        ExpectedCommand,
+    };
+
+    fn andOrCmdList(self: *Self) errors!*AndOrCmdList {
         const pl = try self.pipeline();
-        // TODO more things...
-        return &pl.and_or_cmd_list;
+        // TODO error checking
+
+        var op_range: Range = .{ .begin = .{}, .end = .{} };
+
+        var bin_op_kind: AndOrCmdList.BinaryOp.BinaryOpKind = undefined;
+        if (self.isOperator(.AND, &op_range)) {
+            bin_op_kind = AndOrCmdList.BinaryOp.BinaryOpKind.AND;
+        } else if (self.isOperator(.OR, &op_range)) {
+            bin_op_kind = AndOrCmdList.BinaryOp.BinaryOpKind.OR;
+        } else {
+            return &pl.and_or_cmd_list;
+        }
+
+        // TODO error if and_or_right command is invalid
+        const and_or_right = try self.andOrCmdList();
+        var binary_op = try self.allocator.create(AndOrCmdList.BinaryOp);
+        binary_op.* = .{ .left = &pl.and_or_cmd_list, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind };
+
+        return &binary_op.and_or_cmd_list;
     }
 
-    fn pipeline(self: *Self) !*AndOrCmdList.Pipeline {
+    fn pipeline(self: *Self) errors!*AndOrCmdList.Pipeline {
         //TODO analyze possibility of using peek or similar to know how much allocation needs to be done
         var command_array = std.ArrayList(*Node.Command).init(self.allocator);
         defer command_array.deinit();
@@ -89,15 +123,18 @@ pub const Parser = struct {
         return pl;
     }
 
-    fn command(self: *Self) !*Node.Command {
+    fn command(self: *Self) errors!*Node.Command {
         // TODO compound command
-        return &(try self.simpleCommand()).command;
+        const simple_command = try self.simpleCommand();
+        return &simple_command.command;
     }
 
-    fn simpleCommand(self: *Self) !*Command.SimpleCommand {
+    // TODO make enter (do nothing) possible
+    fn simpleCommand(self: *Self) errors!*Command.SimpleCommand {
         // if has assignment or redir it has prefix
         // TODO above, has_prefix
         var cmd = try self.allocator.create(Command.SimpleCommand);
+        errdefer cmd.deinit(self.allocator);
         cmd.* = .{ .name = null };
         try self.cmdPrefix(cmd);
         cmd.name = try self.cmdName();
@@ -110,7 +147,7 @@ pub const Parser = struct {
         return error.ExpectedCommand;
     }
 
-    fn cmdPrefix(self: *Self, cmd: *Command.SimpleCommand) !void {
+    fn cmdPrefix(self: *Self, cmd: *Command.SimpleCommand) errors!void {
         // TODO maybe function created at comptime that generates the code
         var io_redir_array = std.ArrayList(*IORedir).init(self.allocator);
         defer io_redir_array.deinit();
@@ -129,7 +166,7 @@ pub const Parser = struct {
         cmd.assigns = assigns_array.toOwnedSlice();
     }
 
-    fn cmdName(self: *Self) !?*Word {
+    fn cmdName(self: *Self) errors!?*Word {
         // TODO apply aliases
         // TODO apply keywords
         // TODO maybe make a function create to all the nodes, then it should allocate and return the allocation
@@ -138,7 +175,7 @@ pub const Parser = struct {
         return try self.word();
     }
 
-    fn cmdArgs(self: *Self, cmd: *Command.SimpleCommand) !void {
+    fn cmdArgs(self: *Self, cmd: *Command.SimpleCommand) errors!void {
         var word_array = std.ArrayList(*Word).init(self.allocator);
         defer word_array.deinit();
 
@@ -156,11 +193,11 @@ pub const Parser = struct {
         cmd.io_redirs = io_redir_array.toOwnedSlice();
     }
 
-    fn word(self: *Self) !?*Word {
+    fn word(self: *Self) errors!?*Word {
         if (!self.isCurrentSymbol(.TOKEN)) {
             return null;
         }
-        const len = self.peekSizeWord(0);
+        const len = self.peekSizeWord();
         var range: Range = undefined;
         if (self.readToken(len, &range)) |str| {
             var word_string = try self.allocator.create(Word.WordString);
@@ -171,12 +208,12 @@ pub const Parser = struct {
         }
     }
 
-    fn assignmentWord(self: *Self) !?*Assign {
+    fn assignmentWord(self: *Self) errors!?*Assign {
         if (!self.isCurrentSymbol(.TOKEN)) {
             return null;
         }
 
-        // maybe have error her
+        // maybe have error her, maybe peekName could be called from others places? TODO
         const name_size = self.peekName();
 
         const string = self.peek(name_size + 1);
@@ -196,7 +233,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn IORedirect(self: *Self) !?*IORedir {
+    fn IORedirect(self: *Self) errors!?*IORedir {
         if (try self.IORedirFile()) |io_file| {
             return io_file;
         }
@@ -217,18 +254,16 @@ pub const Parser = struct {
 
         const redirNumOp = self.peek(2);
         if (redirNumOp) |numOp| {
-            if (numOp[1] != '<' or numOp[1] != '>') {
-                return null;
+            if (numOp[1] == '<' or numOp[1] == '>') {
+                const number = self.read(1);
+                self.resetCurrentSymbol();
+                return std.fmt.parseInt(u8, number.?, 10) catch null;
             }
         }
-
-        const number = self.read(1);
-        self.resetCurrentSymbol();
-        std.debug.print("io_num: {s}\n", .{number});
-        return std.fmt.parseInt(u8, number.?, 10) catch null;
+        return null;
     }
 
-    fn IORedirFile(self: *Self) !?*IORedir {
+    fn IORedirFile(self: *Self) errors!?*IORedir {
         const io_num_pos = self.currentPos;
         const io_number = self.IORedirNumber();
 
@@ -246,7 +281,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn IORedirHere(self: *Self) !?*IORedir {
+    fn IORedirHere(self: *Self) errors!?*IORedir {
         _ = self; // TODO
         return null;
     }
@@ -273,7 +308,7 @@ pub const Parser = struct {
         }
     }
 
-    fn peekSizeWord(self: *Self, delim: u8) u8 {
+    fn peekSizeWord(self: *Self) u8 {
         if (!self.isCurrentSymbol(.TOKEN)) {
             return 0;
         }
@@ -288,7 +323,7 @@ pub const Parser = struct {
                     '$', '`', '\'', '"', '\\' => return 0,
                     else => {},
                 }
-                if (isOperatorStart(ch) or std.ascii.isBlank(ch) or ch == delim) {
+                if (isOperatorStart(ch) or std.ascii.isBlank(ch)) {
                     return word_size;
                 }
             } else {
@@ -392,7 +427,7 @@ pub const Parser = struct {
             }
             _ = self.readChar();
         } else {
-            const word_str = self.peek(self.peekSizeWord(0));
+            const word_str = self.peek(self.peekSizeWord());
             if (!std.mem.eql(u8, str, word_str.?)) {
                 return false;
             }
@@ -469,16 +504,13 @@ pub const Parser = struct {
                 self.currentSymbol = .NEWLINE;
             } else if (isOperatorStart(c)) {
                 const string = blk: {
-                    var tempStr = self.peek(3);
-                    if (tempStr) |str| break :blk str;
+                    if (self.peek(3)) |str| break :blk str;
 
                     break :blk self.peek(2);
                 };
                 if (string) |str| {
-                    // checks if the third character is an start operator
-                    const end: u2 = if (isOperatorStart(str[str.len - 1]) or str[str.len - 1] == '-') 3 else 2;
+                    const end: u2 = if (str[str.len - 1] == '-') 3 else 2; // TODO improve it
                     if (operators.get(str[0..end])) |sym| {
-                        _ = self.read(end);
                         self.currentSymbol = sym;
                     }
                 }
@@ -515,8 +547,22 @@ pub const Parser = struct {
             return false;
         }
 
-        const begin: Position = undefined;
-        // TODO
+        const begin: Position = self.currentPos;
+
+        const operator_string_len: u8 = blk: {
+            // TODO improve it
+            if (self.peek(3)) |str| {
+                if (str[2] != '-') {
+                    if (operators.get(str[0..2]) != null) break :blk 2;
+                } else { // if enter here it should be "<<-"
+                    if (operators.get(str) != null) break :blk 3;
+                }
+            } else if (self.peek(2)) |str| {
+                if (operators.get(str) != null) break :blk 2;
+            }
+            unreachable;
+        };
+        _ = self.read(operator_string_len);
 
         if (range) |r| {
             r.begin = begin;
@@ -527,8 +573,17 @@ pub const Parser = struct {
         return true;
     }
 
+    fn separatorOperator(self: *Self) ?u8 {
+        if (self.consumeToken("&", null)) {
+            return '&';
+        } else if (self.consumeToken(";", null)) {
+            return ';';
+        }
+        return null;
+    }
+
     fn atEnd(self: *Self) bool {
-        return if (self.currentSymbol) |sym| sym == .EOF else false;
+        return self.isCurrentSymbol(.EOF);
     }
 };
 
