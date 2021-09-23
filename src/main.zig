@@ -2,7 +2,6 @@
 const std = @import("std");
 const Linenoise = @import("linenoise").Linenoise;
 const Parser = @import("parse.zig").Parser;
-const SymTab = @import("symtab.zig");
 const kzhExit = @import("builtins/exit.zig").kzhExit;
 
 // var linenoize: Linenoise = undefined;

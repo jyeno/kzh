@@ -1,4 +1,5 @@
 //! this module provides an AST for command parsing of kzh shell
+// TODO improve prints
 
 const std = @import("std");
 
