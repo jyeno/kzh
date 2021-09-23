@@ -1,6 +1,7 @@
 const std = @import("std");
 const Parser = @import("parse.zig").Parser;
 const kzhExit = @import("builtins/exit.zig").kzhExit;
+const executor = @import("exec.zig");
 
 // TODO make general purpose allocatorglobal, then deinit it at kzhExit
 pub fn main() anyerror!void {
@@ -37,6 +38,9 @@ pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
 
             program.print();
 
+            _ = executor.runProgram(program) catch |err| {
+                std.debug.print("exec: {}\n", .{err});
+            };
         }
     }
 }
