@@ -16,19 +16,11 @@ TODO rest of README
 
 - [ ] environment variables
 
-- [ ] PS1 MUST HAVE
+- [ ] PS1, PS2, PS3
 
-- [ ] custom functions
+- [ ] user made functions
 
 - [ ] builtins functions/programs
-
-Dependencies, currently for line reading [linenoize](https://github.com/joachimschmidt557/linenoize) is used, therefore,
-you need to execute (prior to compiling):
-
- git submodule update --init --recursive
-
-builtins:
-
 
  * alias
  * cd - partial
@@ -54,7 +46,7 @@ builtins:
  * [, test
  * echo - partial
  * let
- * print - partial
+ * print
  * suspend
  * ulimit
  * whence
@@ -63,7 +55,7 @@ builtins:
  * break
  * continue
  * eval
- * exec - partial
+ * exec
  * export
  * readonly
  * return
@@ -72,4 +64,3 @@ builtins:
  * times
  * trap
  * unset
- * !
