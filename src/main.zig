@@ -21,14 +21,16 @@ pub fn main() anyerror!void {
 }
 
 pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
+    var result: u8 = 0;
     while (true) {
         var algo: [256]u8 = undefined;
         const stdin = std.io.getStdIn().reader();
+        if (result == 0) {
+            std.debug.print("> ", .{});
+        } else {
+            std.debug.print(">> ", .{});
+        }
         if (try stdin.readUntilDelimiterOrEof(&algo, '\n')) |input| {
-            // TODO
-            // maybe use buffer to now alloc a lot of times?
-            // var buffer: [2046]u8 = undefined;
-            // var fba = std.heap.FixedBufferAllocator.init(&buffer);
             var parser = Parser.init(alloca, input);
             var program = parser.parse() catch |err| {
                 std.debug.print("err: {}\n", .{err});
@@ -38,9 +40,7 @@ pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
 
             program.print();
 
-            _ = executor.runProgram(program) catch |err| {
-                std.debug.print("exec: {}\n", .{err});
-            };
+            result = try executor.runProgram(program);
         }
     }
 }
