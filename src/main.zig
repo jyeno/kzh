@@ -38,7 +38,7 @@ pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
             };
             defer program.deinit(alloca);
 
-            program.print();
+            // program.print();
 
             result = try executor.runProgram(program);
         }

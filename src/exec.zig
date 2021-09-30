@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = std.os;
 const builtins = @import("builtins.zig").builtins;
 const ast = @import("ast.zig");
 const Node = ast.Node;
@@ -84,6 +85,7 @@ fn runProcess(argv: [][]const u8) !u8 {
     const allocator = &fba.allocator;
 
     var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, argv.len + 1);
+    defer argvZ.deinit();
 
     for (argv) |arg| {
         argvZ.appendAssumeCapacity(try std.mem.dupeZ(allocator, u8, arg));
@@ -93,8 +95,12 @@ fn runProcess(argv: [][]const u8) !u8 {
     const pid = try std.os.fork();
     if (pid == 0) {
         var envZ = [_:null]?[*:0]const u8{null}; // TODO get env
-        const ret = std.os.execvpeZ(argvZ.items[0].?, @ptrCast([*:null]const ?[*:0]const u8, argvZ.toOwnedSlice()), @ptrCast([*:null]const ?[*:0]const u8, envZ[0..]));
-        printError("some problem happened: {}\n", .{ret}); // for debug
+        switch (std.os.execvpeZ(argvZ.items[0].?, @ptrCast([*:null]const ?[*:0]const u8, argvZ.toOwnedSlice()), envZ[0..])) {
+            error.FileNotFound => printError("kzh: {s}: command not found\n", .{argv[0]}),
+            error.AccessDenied => printError("kzh: {s}: cannot execute - Permission denied\n", .{argv[0]}),
+            else => |err| printError("some problem happened: {}\n", .{err}),
+        }
+        os.exit(1); // if got here, then some problem happened, TODO proper handling
     } else {
         const ret = std.os.waitpid(pid, 0);
         printError("\nreturned process: {}\n", .{ret});
