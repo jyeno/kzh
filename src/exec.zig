@@ -9,6 +9,7 @@ const Command = Node.Command;
 const Word = ast.Word;
 const Position = ast.Position;
 const Range = ast.Range;
+const IORedir = ast.IORedir;
 const printError = std.debug.print;
 
 pub fn runProgram(program: *Node.Program) !u8 {
@@ -69,13 +70,14 @@ fn runSimpleCommand(simple_command: *Command.SimpleCommand) !u8 {
             argv = try BoundedArray.init(1);
         }
         argv.set(0, word_name.cast(Word.WordKind.STRING).?.str);
-        return try runProcess(argv.slice());
+        return try runProcess(argv.slice(), simple_command.io_redirs);
     }
     unreachable;
 }
 
-fn runProcess(argv: [][]const u8) !u8 {
+fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
     if (builtins.get(argv[0])) |builtin| {
+        // TODO support redir on builtins
         return builtin(argv);
     }
 
@@ -94,6 +96,19 @@ fn runProcess(argv: [][]const u8) !u8 {
 
     const pid = try std.os.fork();
     if (pid == 0) {
+        if (io_redirs) |io_redirections| {
+            for (io_redirections) |io_redir| {
+                var source_fd: os.fd_t = undefined;
+                const dest_fd = try processRedirection(io_redir, &source_fd);
+                if (source_fd == dest_fd) continue;
+                if (dest_fd == -1) {
+                    printError("something wrong happened, better handling in the futureTM\n", .{});
+                }
+                os.dup2(dest_fd, source_fd) catch |err| {
+                    printError("something wrong happened dup2, {}\n", .{err});
+                };
+            }
+        }
         var envZ = [_:null]?[*:0]const u8{null}; // TODO get env
         switch (std.os.execvpeZ(argvZ.items[0].?, @ptrCast([*:null]const ?[*:0]const u8, argvZ.toOwnedSlice()), envZ[0..])) {
             error.FileNotFound => printError("kzh: {s}: command not found\n", .{argv[0]}),
@@ -107,4 +122,26 @@ fn runProcess(argv: [][]const u8) !u8 {
         return 0; // TODO figure out how to handle error of execution
     }
     return 1;
+}
+
+fn processRedirection(io_redir: *IORedir, source_fd: *os.fd_t) !os.fd_t {
+    const filename = io_redir.name.cast(.STRING).?.str; // support other word types
+
+    var dest_fd: os.fd_t = switch (io_redir.op) {
+        .IO_LESS => try os.open(filename, os.O.CLOEXEC | os.O.RDONLY, 0),
+        // .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => createHereDocumentFd TODO
+        .IO_GREAT, .IO_CLOBBER => try os.open(filename, os.O.WRONLY | os.system.O.CREAT | os.O.TRUNC, 0o644),
+        .IO_DOUBLE_GREAT => try os.open(filename, os.O.WRONLY | os.O.CREAT | os.O.APPEND, 0o644),
+        .IO_LESS_AND, .IO_GREAT_AND => std.fmt.parseInt(os.fd_t, filename, 10) catch -1,
+        else => -1,
+    };
+    if (io_redir.io_num) |io_number| {
+        source_fd.* = io_number;
+    } else {
+        switch (io_redir.op) {
+            .IO_LESS, .IO_LESS_AND, .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => source_fd.* = os.STDIN_FILENO,
+            .IO_LESS_GREAT, .IO_GREAT, .IO_DOUBLE_GREAT, .IO_GREAT_AND, .IO_CLOBBER => source_fd.* = os.STDOUT_FILENO,
+        }
+    }
+    return dest_fd;
 }

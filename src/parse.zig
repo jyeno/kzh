@@ -178,19 +178,27 @@ pub const Parser = struct {
     fn cmdArgs(self: *Self, cmd: *Command.SimpleCommand) errors!void {
         var word_array = std.ArrayList(*Word).init(self.allocator);
         defer word_array.deinit();
-
-        while (try self.word()) |word_ptr| {
-            try word_array.append(word_ptr);
-        }
-        cmd.args = word_array.toOwnedSlice();
-
         var io_redir_array = std.ArrayList(*IORedir).init(self.allocator);
         defer io_redir_array.deinit();
-
-        while (try self.IORedirect()) |io_redir| {
-            try io_redir_array.append(io_redir);
+        var appended_redir = true;
+        var appended_word = true;
+        while (appended_redir or appended_word) {
+            if (try self.IORedirect()) |io_redir| {
+                try io_redir_array.append(io_redir);
+                appended_redir = true;
+            } else {
+                appended_redir = false;
+            }
+            if (try self.word()) |word_ptr| {
+                try word_array.append(word_ptr);
+                appended_word = true;
+            } else {
+                appended_word = false;
+            }
         }
+
         cmd.io_redirs = io_redir_array.toOwnedSlice();
+        cmd.args = word_array.toOwnedSlice();
     }
 
     fn word(self: *Self) errors!?*Word {
