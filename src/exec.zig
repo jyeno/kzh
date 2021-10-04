@@ -94,12 +94,24 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
     }
     argvZ.appendAssumeCapacity(null);
 
-    const pid = try std.os.fork();
+    const pid = std.os.fork() catch |err| {
+        switch (err) {
+            error.SystemResources => printError("kzh: could not fork, system resources unavaliable\n", .{}),
+            else => printError("kzh: {}", .{err}),
+        }
+        return 1;
+    };
     if (pid == 0) {
         if (io_redirs) |io_redirections| {
             for (io_redirections) |io_redir| {
                 var source_fd: os.fd_t = undefined;
-                const dest_fd = try processRedirection(io_redir, &source_fd);
+                const dest_fd = processRedirection(io_redir, &source_fd) catch |err| {
+                    switch (err) {
+                        error.AccessDenied => printError("kzh: cannot create {s}: Permission denied\n", .{io_redir.name.cast(.STRING).?.str}), // TODO word string function
+                        else => printError("kzh: {}", .{err}),
+                    }
+                    os.exit(1);
+                };
                 if (source_fd == dest_fd) continue;
                 if (dest_fd == -1) {
                     printError("something wrong happened, better handling in the futureTM\n", .{});
