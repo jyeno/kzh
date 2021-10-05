@@ -68,7 +68,7 @@ pub const Node = struct {
         }
 
         pub fn print(self: *Program) void {
-            std.debug.print("program\n", .{});
+            std.debug.print("\nprogram\n", .{});
             for (self.body) |command_list| {
                 std.debug.print(" - ", .{});
                 command_list.print();
@@ -244,6 +244,7 @@ pub const Node = struct {
             }
 
             pub fn deinit(self: *SimpleCommand, allocator: *std.mem.Allocator) void {
+                // TODO proper word deinit
                 if (self.name) |word_name| allocator.destroy(word_name);
                 if (self.args) |args| {
                     for (args) |arg| {
@@ -254,12 +255,15 @@ pub const Node = struct {
                 if (self.assigns) |assignments| {
                     for (assignments) |assign| {
                         // TODO deinit word
+                        if (assign.value) |val| allocator.destroy(val);
                         allocator.destroy(assign);
                     }
                     allocator.free(assignments);
                 }
                 if (self.io_redirs) |io_redirects| {
                     for (io_redirects) |io_redir| {
+                        // TODO proper io_redir deinit
+                        allocator.destroy(io_redir.name);
                         allocator.destroy(io_redir);
                     }
                     allocator.free(io_redirects);
