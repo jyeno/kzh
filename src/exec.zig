@@ -123,14 +123,14 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
         }
         var envZ = [_:null]?[*:0]const u8{null}; // TODO get env
         switch (std.os.execvpeZ(argvZ.items[0].?, @ptrCast([*:null]const ?[*:0]const u8, argvZ.toOwnedSlice()), envZ[0..])) {
-            error.FileNotFound => printError("kzh: {s}: command not found\n", .{argv[0]}),
+            error.FileNotFound => printError("kzh: {s}: not found\n", .{argv[0]}),
             error.AccessDenied => printError("kzh: {s}: cannot execute - Permission denied\n", .{argv[0]}),
             else => |err| printError("some problem happened: {}\n", .{err}),
         }
         os.exit(1); // if got here, then some problem happened, TODO proper handling
     } else {
-        const ret = std.os.waitpid(pid, 0);
-        printError("\nreturned process: {}\n", .{ret});
+        _ = std.os.waitpid(pid, 0);
+        // printError("\nreturned process: {}\n", .{ret});
         return 0; // TODO figure out how to handle error of execution
     }
     return 1;
