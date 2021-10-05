@@ -25,9 +25,9 @@ fn runCommandListArray(cmd_list_array: []*Node.CommandList) !u8 {
 }
 
 fn runAndOrCmdList(and_or_list: *Node.AndOrCmdList) !u8 {
-    if (and_or_list.cast(AndOrCmdListKind.PIPELINE)) |pipeline| {
+    if (and_or_list.cast(.PIPELINE)) |pipeline| {
         return try runPipeline(pipeline);
-    } else if (and_or_list.cast(AndOrCmdListKind.BINARY_OP)) |binary_op| {
+    } else if (and_or_list.cast(.BINARY_OP)) |binary_op| {
         // TODO fix, make it the and_or_cmd_list
         return try runBinaryOp(binary_op);
     }
@@ -48,7 +48,7 @@ fn runBinaryOp(binary_op: *AndOrCmdList.BinaryOp) !u8 {
 }
 
 fn runCommand(command: *Command) !u8 {
-    if (command.cast(Command.CommandKind.SIMPLE_COMMAND)) |simple_command| {
+    if (command.cast(.SIMPLE_COMMAND)) |simple_command| {
         return try runSimpleCommand(simple_command);
     }
     unreachable;
@@ -62,7 +62,7 @@ fn runSimpleCommand(simple_command: *Command.SimpleCommand) !u8 {
         if (simple_command.args) |args| {
             argv = try BoundedArray.init(args.len + 1);
             for (args) |arg, i| {
-                if (arg.cast(Word.WordKind.STRING)) |a| {
+                if (arg.cast(.STRING)) |a| {
                     argv.set(i + 1, a.str); // TODO consider others wordkinds
                 }
             }
