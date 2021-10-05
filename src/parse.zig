@@ -207,7 +207,6 @@ pub const Parser = struct {
         try parser.cmdPrefix(cmd);
         cmd.name = try parser.cmdName();
         if (!cmd.isEmpty()) {
-            // TODO fix cmdArgs
             try parser.cmdArgs(cmd);
             return cmd;
         }
@@ -226,22 +225,14 @@ pub const Parser = struct {
         defer io_redir_array.deinit();
         var assigns_array = std.ArrayList(*Assign).init(parser.allocator);
         defer assigns_array.deinit();
-        var assigns_appended = true;
-        var redirs_appended = true;
 
-        while (redirs_appended or assigns_appended) {
+        while (true) {
             if (try parser.IORedirect()) |io_redir| {
                 try io_redir_array.append(io_redir);
-                redirs_appended = true;
-            } else {
-                redirs_appended = false;
-            }
-
-            if (try parser.assignmentWord()) |assign| {
+            } else if (try parser.assignmentWord()) |assign| {
                 try assigns_array.append(assign);
-                assigns_appended = true;
             } else {
-                assigns_appended = false;
+                break;
             }
         }
 
@@ -272,20 +263,14 @@ pub const Parser = struct {
         defer word_array.deinit();
         var io_redir_array = std.ArrayList(*IORedir).fromOwnedSlice(parser.allocator, cmd.io_redirs.?);
         defer io_redir_array.deinit();
-        var appended_redir = true;
-        var appended_word = true;
-        while (appended_redir or appended_word) {
+
+        while (true) {
             if (try parser.IORedirect()) |io_redir| {
                 try io_redir_array.append(io_redir);
-                appended_redir = true;
-            } else {
-                appended_redir = false;
-            }
-            if (try parser.word()) |word_ptr| {
+            } else if (try parser.word()) |word_ptr| {
                 try word_array.append(word_ptr);
-                appended_word = true;
             } else {
-                appended_word = false;
+                break;
             }
         }
 
@@ -360,7 +345,6 @@ pub const Parser = struct {
 
     /// IO_NUMBER
     fn IORedirNumber(parser: *Parser) ?u8 {
-        // TODO error reading, 'echo oi 2>&1' should have io_num as 2, it doesnt
         if (!parser.isCurrentSymbol(.TOKEN)) {
             return null;
         }
@@ -384,8 +368,9 @@ pub const Parser = struct {
     ///          | LESSGREAT filename
     ///          | CLOBBER   filename
     fn IORedirFile(parser: *Parser) errors!?*IORedir {
-        const io_num_pos = parser.currentPos;
+        var io_num_pos: ?Position = parser.currentPos;
         const io_number = parser.IORedirNumber();
+        if (io_number == null) io_num_pos = null;
 
         var range = Range{ .begin = parser.currentPos, .end = .{} };
         const operator = parser.IORedirOp(&range);
@@ -750,16 +735,13 @@ test "Pipeline" {
     // TODO
 }
 
-test "Simple Command with io redirection" {
-    // TODO
-}
-
-test "Simple Command" {
+test "Parse Simple Command" {
     const command_string = "echo hi";
 
     var parser = Parser.init(testing.allocator, command_string);
-    var program = try parser.parse();
+    const program = try parser.parse();
     defer program.deinit(testing.allocator);
+    program.print();
 
     try testing.expect(program.body.len == 1);
 
@@ -781,4 +763,79 @@ test "Simple Command" {
 
     try testing.expect(simple_command.assigns == null);
     try testing.expect(simple_command.io_redirs == null);
+}
+
+test "Parse Simple Command with IO redirection" {
+    const command_string1 = "ls >/dev/null 2>&1";
+
+    var parser1 = Parser.init(testing.allocator, command_string1);
+    const program1 = try parser1.parse();
+    defer program1.deinit(testing.allocator);
+    program1.print();
+
+    // previous test case already verify those things
+    const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command1.name != null);
+    try testing.expect(simple_command1.args == null);
+    try testing.expect(simple_command1.assigns == null);
+
+    try testing.expect(simple_command1.io_redirs != null);
+    try testing.expect(simple_command1.io_redirs.?.len == 2);
+
+    const io_redir1 = simple_command1.io_redirs.?[0];
+    try testing.expect(io_redir1.io_num == null);
+    try testing.expect(io_redir1.io_num_pos == null);
+    try testing.expect(io_redir1.here_doc == null);
+    try testing.expect(io_redir1.op == .IO_GREAT);
+    try testing.expect(mem.eql(u8, io_redir1.name.cast(.STRING).?.str, "/dev/null"));
+
+    const io_redir2 = simple_command1.io_redirs.?[1];
+    try testing.expect(io_redir2.io_num != null);
+    try testing.expect(io_redir2.io_num.? == 2);
+    try testing.expect(io_redir2.here_doc == null);
+    try testing.expect(io_redir2.op == .IO_GREAT_AND);
+    try testing.expect(mem.eql(u8, io_redir2.name.cast(.STRING).?.str, "1"));
+}
+
+test "Parse Simple Command Assignments" {
+    const command_string1 = "some=thing else=where ls";
+
+    var parser1 = Parser.init(testing.allocator, command_string1);
+    const program1 = try parser1.parse();
+    defer program1.deinit(testing.allocator);
+    program1.print();
+
+    // previous test case already verify those things
+    const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command1.name != null);
+    try testing.expect(simple_command1.args == null);
+    try testing.expect(simple_command1.io_redirs == null);
+
+    try testing.expect(simple_command1.assigns != null);
+    const assigns1 = simple_command1.assigns.?;
+    try testing.expect(assigns1.len == 2);
+    try testing.expect(std.mem.eql(u8, assigns1[0].name, "some"));
+    try testing.expect(assigns1[0].value != null);
+    try testing.expect(std.mem.eql(u8, assigns1[0].value.?.cast(.STRING).?.str, "thing"));
+    try testing.expect(std.mem.eql(u8, assigns1[1].name, "else"));
+    try testing.expect(assigns1[1].value != null);
+    try testing.expect(std.mem.eql(u8, assigns1[1].value.?.cast(.STRING).?.str, "where"));
+
+    const command_string2 = "only=envvar";
+    var parser2 = Parser.init(testing.allocator, command_string2);
+    const program2 = try parser2.parse();
+    defer program2.deinit(testing.allocator);
+    program2.print();
+
+    const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command2.name == null);
+    try testing.expect(simple_command2.args == null);
+    try testing.expect(simple_command2.io_redirs == null);
+
+    try testing.expect(simple_command2.assigns != null);
+    const assigns2 = simple_command2.assigns.?;
+    try testing.expect(assigns2.len == 1);
+    try testing.expect(std.mem.eql(u8, assigns2[0].name, "only"));
+    try testing.expect(assigns2[0].value != null);
+    try testing.expect(std.mem.eql(u8, assigns2[0].value.?.cast(.STRING).?.str, "envvar"));
 }
