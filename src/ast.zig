@@ -1,5 +1,5 @@
 //! this module provides an AST for command parsing of kzh shell
-// TODO improve prints
+// TODO proper printer struct, so it can be properly printed
 
 const std = @import("std");
 
@@ -53,6 +53,7 @@ pub const Node = struct {
         return null;
     }
 
+    // TODO consider having an allocator to all its child
     /// Representation of a 'program', see 'GRAMMAR' of insert_here_link
     /// It has a body that contains one or more `CommandList`s.
     pub const Program = struct {
@@ -309,18 +310,18 @@ pub const Word = struct {
 
     pub const WordKind = enum {
         STRING,
-        // PARAMETER,
-        // COMMAND,
-        // ARITHMETIC,
-        // LIST,
+        PARAMETER,
+        COMMAND,
+        ARITHMETIC,
+        LIST,
 
         pub fn Type(self: WordKind) type {
             return switch (self) {
                 .STRING => WordString,
-                // .PARAMETER => WordParameter,
-                // .COMMAND => WordCommand, // is there right?
-                // .ARITHMETIC => WordArith,
-                // .LIST => WordList,
+                .PARAMETER => WordParameter,
+                .COMMAND => WordCommand,
+                .ARITHMETIC => WordArithm,
+                .LIST => WordList,
             };
         }
     };
@@ -332,10 +333,34 @@ pub const Word = struct {
         return null;
     }
 
+    pub fn deinit(self: *Word, allocator: *std.mem.Allocator) void {
+        if (self.cast(.STRING)) |word_string| {
+            word_string.deinit(allocator);
+        } else if (self.cast(.COMMAND)) |word_command| {
+            word_command.deinit(allocator);
+        } else if (self.cast(.PARAMETER)) |word_parameter| {
+            word_parameter.deinit(allocator);
+        } else if (self.cast(.ARITHMETIC)) |word_arithm| {
+            word_arithm.deinit(allocator);
+        } else if (self.cast(.LIST)) |word_list| {
+            word_list.deinit(allocator);
+        } else {
+            unreachable;
+        }
+    }
+
     pub fn print(self: *Word) void {
         std.debug.print("         ", .{});
         if (self.cast(.STRING)) |word_string| {
             word_string.print();
+        } else if (self.cast(.COMMAND)) |word_command| {
+            word_command.print();
+        } else if (self.cast(.PARAMETER)) |word_parameter| {
+            word_parameter.print();
+        } else if (self.cast(.ARITHMETIC)) |word_arithm| {
+            word_arithm.print();
+        } else if (self.cast(.LIST)) |word_list| {
+            word_list.print();
         } else {
             unreachable;
         }
@@ -347,8 +372,113 @@ pub const Word = struct {
         is_single_quoted: bool = false,
         range: ?Range = null,
 
+        pub fn deinit(self: *WordString, allocator: *std.mem.Allocator) void {
+            allocator.destroy(self);
+        }
+
         pub fn print(self: *WordString) void {
             std.debug.print("word_string {s}  is_single_quoted ({}) range ({})\n", .{ self.str, self.is_single_quoted, self.range });
+        }
+    };
+
+    pub const WordParameter = struct {
+        word: Word = .{ .kind = .PARAMETER },
+        name: []const u8,
+        op: ParameterOperation,
+        /// only used when '-', '=', '?' and '+'
+        has_colon: bool,
+        arg: ?*Word = null,
+        // TODO add positions
+
+        pub const ParameterOperation = enum {
+            PARAMETER_MINUS, // ${name:-[arg]}, arg is the default value
+            PARAMETER_EQUAL, // ${name:=[arg]}, assign default value (arg)
+            PARAMETER_PLUS, // ${name:+[arg]}, use alternative value
+            PARAMETER_MAYBE, // ${name:?[arg]}, error if empty or undefined
+            PARAMETER_LEADING_HASH, // ${#name}, string lenght of name
+            PARAMETER_HASH, // ${name#[arg]}, remove smallest prefix pattern
+            PARAMETER_DOUBLE_HASH, // ${name##[arg]}, remove largest prefix pattern
+            PARAMETER_PERCENT, // ${name%[arg]}, remove smallest suffix pattern
+            PARAMETER_DOUBLE_PERCENT, // ${name%%[arg]}, remove lagest suffix pattern
+            PARAMETER_NO_OP, //$name , ${name}, no operation
+        };
+
+        pub fn deinit(self: *WordParameter, allocator: *std.mem.Allocator) void {
+            if (self.arg) |word_arg| {
+                word_arg.deinit(allocator);
+            }
+            allocator.destroy(self);
+        }
+
+        pub fn print(self: *WordParameter) void {
+            std.debug.print("word_param ({}) name: {s} has_colon ({}) arg:", .{ self.op, self.name, self.has_colon });
+            if (self.arg) |word_arg| {
+                std.debug.print("\n   ", .{});
+                word_arg.print();
+            } else {
+                std.debug.print(" null\n", .{});
+            }
+        }
+    };
+
+    pub const WordCommand = struct {
+        word: Word = .{ .kind = .COMMAND },
+        program: ?*Node.Program,
+        is_back_quoted: bool,
+        range: Range,
+
+        pub fn deinit(self: *WordCommand, allocator: *std.mem.Allocator) void {
+            if (self.program) |prog| {
+                prog.deinit(allocator);
+            }
+            allocator.destroy(self);
+        }
+
+        pub fn print(self: *WordCommand) void {
+            std.debug.print("word_command ({}) is_back_quoted: {}\n", .{ self.range, self.is_back_quoted });
+            if (self.program) |prog| {
+                std.debug.print("              program: ", .{});
+                prog.print();
+            }
+        }
+    };
+
+    pub const WordArithm = struct {
+        word: Word = .{ .kind = .ARITHMETIC },
+        body: *Word,
+
+        pub fn deinit(self: *WordArithm, allocator: *std.mem.Allocator) void {
+            self.body.deinit(allocator);
+            allocator.destroy(self);
+        }
+
+        pub fn print(self: *WordArithm) void {
+            std.debug.print("word_arithm ({}) body:\n   ", .{self});
+            self.body.print();
+        }
+    };
+
+    pub const WordList = struct {
+        word: Word = .{ .kind = .LIST },
+        items: []*Word,
+        is_double_quoted: bool,
+        left_quote_pos: ?Position = null,
+        right_quote_pos: ?Position = null,
+
+        pub fn deinit(self: *WordList, allocator: *std.mem.Allocator) void {
+            for (self.items) |item| {
+                item.denit(allocator);
+            }
+            allocator.free(self.items);
+            allocator.destroy(self);
+        }
+
+        pub fn print(self: *WordList) void {
+            std.debug.print("word_list ({}) is_double_quoted: {} left_quote ({}) right_quote ({}):\n", .{ self.items.len, self.is_double_quoted, self.left_quote_pos, self.right_quote_pos });
+            for (self.items) |item| {
+                item.print();
+            }
+            std.debug.print("end_word_list\n", .{});
         }
     };
 };
@@ -364,15 +494,15 @@ pub const IORedir = struct {
     usingnamespace IORedirKind;
 
     pub const IORedirKind = enum {
-        IO_LESS,
-        IO_DOUBLE_LESS,
-        IO_LESS_AND,
-        IO_DOUBLE_LESS_DASH,
-        IO_LESS_GREAT,
-        IO_GREAT,
-        IO_DOUBLE_GREAT,
-        IO_GREAT_AND,
-        IO_CLOBBER,
+        IO_LESS, // <
+        IO_DOUBLE_LESS, // <<
+        IO_LESS_AND, // <&
+        IO_DOUBLE_LESS_DASH, // <<-
+        IO_LESS_GREAT, // <>
+        IO_GREAT, // >
+        IO_DOUBLE_GREAT, // >>
+        IO_GREAT_AND, // >&
+        IO_CLOBBER, // >|
     };
 };
 
