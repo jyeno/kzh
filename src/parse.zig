@@ -302,23 +302,21 @@ pub const Parser = struct {
 
     /// ASSIGNMENT_WORD
     fn assignmentWord(parser: *Parser) errors!?*Assign {
-        if (!parser.isCurrentSymbol(.TOKEN)) {
-            return null;
-        }
+        if (parser.isCurrentSymbol(.TOKEN)) {
+            // maybe have error her, maybe peekName could be called from others places? TODO
+            const name_size = parser.peekName();
 
-        // maybe have error her, maybe peekName could be called from others places? TODO
-        const name_size = parser.peekName();
-
-        const string = parser.peek(name_size + 1);
-        if (string) |str| {
-            if (name_size != 0 and str[name_size] == '=') {
-                var name_range: Range = .{ .begin = .{}, .end = .{} };
-                if (parser.readToken(name_size, &name_range)) |name| {
-                    const equal_pos = parser.currentPos;
-                    _ = parser.readChar();
-                    var assign = try parser.allocator.create(Assign);
-                    assign.* = .{ .name = name, .value = try parser.word(), .name_range = name_range, .equal_pos = equal_pos };
-                    return assign;
+            const string = parser.peek(name_size + 1);
+            if (string) |str| {
+                if (name_size != 0 and str[name_size] == '=') {
+                    var name_range: Range = .{ .begin = .{}, .end = .{} };
+                    if (parser.readToken(name_size, &name_range)) |name| {
+                        const equal_pos = parser.currentPos;
+                        _ = parser.readChar();
+                        var assign = try parser.allocator.create(Assign);
+                        assign.* = .{ .name = name, .value = try parser.word(), .name_range = name_range, .equal_pos = equal_pos };
+                        return assign;
+                    }
                 }
             }
         }
@@ -345,16 +343,14 @@ pub const Parser = struct {
 
     /// IO_NUMBER
     fn IORedirNumber(parser: *Parser) ?u8 {
-        if (!parser.isCurrentSymbol(.TOKEN)) {
-            return null;
-        }
-
-        const redirNumOp = parser.peek(2);
-        if (redirNumOp) |numOp| {
-            if (numOp[1] == '<' or numOp[1] == '>') {
-                const number = parser.read(1);
-                parser.resetCurrentSymbol();
-                return std.fmt.parseInt(u8, number.?, 10) catch null;
+        if (parser.isCurrentSymbol(.TOKEN)) {
+            const redirNumOp = parser.peek(2);
+            if (redirNumOp) |numOp| {
+                if (numOp[1] == '<' or numOp[1] == '>') {
+                    const number = parser.read(1);
+                    parser.resetCurrentSymbol();
+                    return std.fmt.parseInt(u8, number.?, 10) catch null;
+                }
             }
         }
         return null;
