@@ -20,6 +20,7 @@ pub fn main() anyerror!void {
     }
 }
 
+/// kzh main loop, used when the program is run in interactive mode
 pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
     var result: u8 = 0;
     while (true) {
@@ -38,7 +39,17 @@ pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
             };
             defer program.deinit(alloca);
 
-            result = try executor.runProgram(program);
+            program.print();
+
+            // result = try executor.runProgram(program);
         }
     }
+}
+
+test "Test All" {
+    _ = @import("ast.zig");
+    _ = @import("parse.zig");
+    _ = @import("exec.zig");
+    _ = @import("builtins.zig");
+    // _ = @import("symtab.zig");
 }

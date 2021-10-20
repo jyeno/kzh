@@ -149,4 +149,13 @@ pub fn OptIterator(comptime T: type) type {
     };
 }
 
+test "Test Builtins" {
+    _ = @import("builtins/builtin.zig");
+    _ = @import("builtins/cd.zig");
+    _ = @import("builtins/echo.zig");
+    _ = @import("builtins/exit.zig");
+    _ = @import("builtins/false.zig");
+    _ = @import("builtins/pwd.zig");
+    _ = @import("builtins/true.zig");
+}
 // TODO figure out how to make tests with the Option struct

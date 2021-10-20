@@ -790,7 +790,7 @@ test "Parse Simple Command with IO redirection" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    program1.print();
+    // program1.print();
 
     // previous test case already verify those things
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
@@ -822,9 +822,8 @@ test "Parse Simple Command Assignments" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    program1.print();
+    // program1.print();
 
-    // previous test case already verify those things
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
     try testing.expect(simple_command1.args == null);
@@ -844,7 +843,7 @@ test "Parse Simple Command Assignments" {
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
     defer program2.deinit(testing.allocator);
-    program2.print();
+    // program2.print();
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name == null);
