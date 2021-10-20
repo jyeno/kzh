@@ -1,4 +1,5 @@
 //! this module provides an AST for command parsing of kzh shell
+//! Also, see 'GRAMMAR' on parse.zig
 // TODO proper printer struct, so it can be properly printed
 
 const std = @import("std");
@@ -54,12 +55,14 @@ pub const Node = struct {
     }
 
     // TODO consider having an allocator to all its child
-    /// Representation of a 'program', see 'GRAMMAR' of insert_here_link
+    /// Representation of a 'program'
     /// It has a body that contains one or more `CommandList`s.
     pub const Program = struct {
         node: Node = .{ .kind = .PROGRAM },
         body: []*CommandList,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *Program, allocator: *std.mem.Allocator) void {
             for (self.body) |command_list| {
                 command_list.deinit(allocator);
@@ -68,6 +71,7 @@ pub const Node = struct {
             allocator.destroy(self);
         }
 
+        /// Prints the Program Representation
         pub fn print(self: *Program) void {
             std.debug.print("\nprogram\n", .{});
             for (self.body) |command_list| {
@@ -78,17 +82,21 @@ pub const Node = struct {
         }
     };
 
+    /// Command List representation
     pub const CommandList = struct {
         node: Node = .{ .kind = .COMMAND_LIST },
         and_or_cmd_list: *AndOrCmdList,
         is_async: bool = false,
         separator_pos: ?Position = null,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *CommandList, allocator: *std.mem.Allocator) void {
             self.and_or_cmd_list.deinit(allocator);
             allocator.destroy(self);
         }
 
+        /// Prints the Command List representation
         pub fn print(self: *CommandList) void {
             _ = self;
             std.debug.print("cmd_list is_async ({}) separator_pos ({}):\n", .{ self.is_async, self.separator_pos });
@@ -96,12 +104,16 @@ pub const Node = struct {
         }
     };
 
+    /// And Or Command List representation
     pub const AndOrCmdList = struct {
         node: Node = .{ .kind = .AND_OR_LIST },
         kind: AndOrCmdListKind,
 
+        /// And Or Command List type representation
         pub const AndOrCmdListKind = enum(u1) {
+            /// command '|' command...
             PIPELINE,
+            /// command '&&' or '||' command...
             BINARY_OP,
 
             pub fn Type(self: AndOrCmdListKind) type {
@@ -112,6 +124,7 @@ pub const Node = struct {
             }
         };
 
+        /// Casts given `base` (`AndOrCmdList`) pointer to `and_or_list_kind`, returns null if fail
         pub fn cast(base: *AndOrCmdList, comptime and_or_list_kind: AndOrCmdListKind) ?*and_or_list_kind.Type() {
             if (base.kind == and_or_list_kind) {
                 return @fieldParentPtr(and_or_list_kind.Type(), "and_or_cmd_list", base);
@@ -119,6 +132,7 @@ pub const Node = struct {
             return null;
         }
 
+        /// Calls the correct deinitializer of the `AndOrCmdList` type
         pub fn deinit(self: *AndOrCmdList, allocator: *std.mem.Allocator) void {
             if (self.cast(.PIPELINE)) |pipeline| {
                 pipeline.deinit(allocator);
@@ -129,6 +143,7 @@ pub const Node = struct {
             }
         }
 
+        /// Calls the correct printer of the data representation of `AndOrCmdList`
         pub fn print(self: *AndOrCmdList) void {
             std.debug.print("   - ", .{});
             if (self.cast(.PIPELINE)) |pipeline| {
@@ -140,12 +155,15 @@ pub const Node = struct {
             }
         }
 
+        /// Pipeline representation
         pub const Pipeline = struct {
             and_or_cmd_list: AndOrCmdList = .{ .kind = .PIPELINE },
             commands: []*Command,
             has_bang: bool,
             bang_pos: ?Position,
 
+            /// Deinitializes the memory used, takes an `allocator`, it should be the one
+            /// that was used to allocate the data
             pub fn deinit(self: *Pipeline, allocator: *std.mem.Allocator) void {
                 for (self.commands) |cmd| {
                     cmd.deinit(allocator);
@@ -154,6 +172,7 @@ pub const Node = struct {
                 allocator.destroy(self);
             }
 
+            /// Prints the Pipeline representation
             pub fn print(self: *Pipeline) void {
                 std.debug.print("pipeline len ({}) has_bang ({}) bang_pos ({}):\n", .{ self.commands.len, self.has_bang, self.bang_pos });
                 for (self.commands) |cmd| {
@@ -164,6 +183,7 @@ pub const Node = struct {
             // TODO pipe positions between each command
         };
 
+        /// Binary Operation representation
         pub const BinaryOp = struct {
             and_or_cmd_list: AndOrCmdList = .{ .kind = .BINARY_OP },
             left: *AndOrCmdList,
@@ -172,26 +192,33 @@ pub const Node = struct {
             kind: BinaryOpKind,
 
             pub const BinaryOpKind = enum(u1) {
+                /// &&
                 AND,
+                /// ||
                 OR,
             };
 
+            /// Deinitializes the memory used, takes an `allocator`, it should be the one
+            /// that was used to allocate the data
             pub fn deinit(self: *BinaryOp, allocator: *std.mem.Allocator) void {
                 self.left.deinit(allocator);
                 self.right.deinit(allocator);
                 allocator.destroy(self);
             }
 
+            /// Prints the Binary Operation representation
             pub fn print(self: *BinaryOp) void {
                 std.debug.print("binary_op ({}) {} left: {} right: {}\n", .{ self.op_range, self.kind, self.left, self.right });
             }
         };
     };
 
+    /// Command representation
     pub const Command = struct {
         node: Node = .{ .kind = .COMMAND },
         kind: CommandKind,
 
+        /// Command type representation
         pub const CommandKind = enum {
             SIMPLE_COMMAND,
             // BRACE_GROUP,
@@ -209,6 +236,7 @@ pub const Node = struct {
             }
         };
 
+        /// Casts given `base` (`Command`) pointer to `command_kind`, returns null if fail
         pub fn cast(base: *Command, comptime command_kind: CommandKind) ?*command_kind.Type() {
             if (base.kind == command_kind) {
                 return @fieldParentPtr(command_kind.Type(), "command", base);
@@ -216,6 +244,7 @@ pub const Node = struct {
             return null;
         }
 
+        /// Calls the correct deinitializer of the `Command` type
         pub fn deinit(self: *Command, allocator: *std.mem.Allocator) void {
             if (self.cast(.SIMPLE_COMMAND)) |simple_command| {
                 simple_command.deinit(allocator);
@@ -224,6 +253,7 @@ pub const Node = struct {
             }
         }
 
+        /// Calls the correct printer of the data representation of `Command`
         pub fn print(self: *Command) void {
             std.debug.print("     - ", .{});
             if (self.cast(.SIMPLE_COMMAND)) |simple_command| {
@@ -233,6 +263,7 @@ pub const Node = struct {
             }
         }
 
+        /// Simple Command representation
         pub const SimpleCommand = struct {
             command: Command = .{ .kind = .SIMPLE_COMMAND },
             name: ?*Word,
@@ -244,6 +275,8 @@ pub const Node = struct {
                 return self.name == null and self.io_redirs == null and self.assigns == null;
             }
 
+            /// Deinitializes the memory used, takes an `allocator`, it should be the one
+            /// that was used to allocate the data
             pub fn deinit(self: *SimpleCommand, allocator: *std.mem.Allocator) void {
                 // TODO proper word deinit
                 if (self.name) |word_name| allocator.destroy(word_name);
@@ -272,6 +305,7 @@ pub const Node = struct {
                 allocator.destroy(self);
             }
 
+            /// Prints the Simple Command representation
             pub fn print(self: *SimpleCommand) void {
                 std.debug.print("simple_command:\n", .{});
                 if (self.io_redirs) |io_redirects| {
@@ -304,10 +338,12 @@ pub const Node = struct {
     };
 };
 
+/// Word representation
 pub const Word = struct {
     node: Node = .{ .kind = .WORD },
     kind: WordKind,
 
+    /// Word type representation
     pub const WordKind = enum {
         STRING,
         PARAMETER,
@@ -326,6 +362,7 @@ pub const Word = struct {
         }
     };
 
+    /// Casts given `base` (`Word`) pointer to `word_kind`, returns null if fail
     pub fn cast(base: *Word, comptime word_kind: WordKind) ?*word_kind.Type() {
         if (base.kind == word_kind) {
             return @fieldParentPtr(word_kind.Type(), "word", base);
@@ -333,6 +370,7 @@ pub const Word = struct {
         return null;
     }
 
+    /// Calls the correct deinitializer of the `Word` type
     pub fn deinit(self: *Word, allocator: *std.mem.Allocator) void {
         if (self.cast(.STRING)) |word_string| {
             word_string.deinit(allocator);
@@ -349,6 +387,7 @@ pub const Word = struct {
         }
     }
 
+    /// Calls the correct printer of the data representation of `Word`
     pub fn print(self: *Word) void {
         std.debug.print("         ", .{});
         if (self.cast(.STRING)) |word_string| {
@@ -366,43 +405,67 @@ pub const Word = struct {
         }
     }
 
+    /// Word String representation
     pub const WordString = struct {
         word: Word = .{ .kind = .STRING },
+        /// string slice
         str: []const u8,
+        /// used to determine if the string should be expanded or not
         is_single_quoted: bool = false,
+        /// Position of the string
         range: ?Range = null,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *WordString, allocator: *std.mem.Allocator) void {
             allocator.destroy(self);
         }
 
+        /// Prints the Word String representation
         pub fn print(self: *WordString) void {
             std.debug.print("word_string {s}  is_single_quoted ({}) range ({})\n", .{ self.str, self.is_single_quoted, self.range });
         }
     };
 
+    /// Word Parameter representation
     pub const WordParameter = struct {
         word: Word = .{ .kind = .PARAMETER },
+        /// Name of the word
         name: []const u8,
-        op: ParameterOperation,
-        /// only used when '-', '=', '?' and '+'
-        has_colon: bool,
+        /// Operation type
+        op: ParameterOperation = .PARAMETER_NO_OP,
+        /// Only used on '-', '=', '?' and '+' operations
+        has_colon: bool = false,
+        /// Optional args that are used by some operations
         arg: ?*Word = null,
         // TODO add positions
 
+        /// Representation of the parameters operations
         pub const ParameterOperation = enum {
-            PARAMETER_MINUS, // ${name:-[arg]}, arg is the default value
-            PARAMETER_EQUAL, // ${name:=[arg]}, assign default value (arg)
-            PARAMETER_PLUS, // ${name:+[arg]}, use alternative value
-            PARAMETER_MAYBE, // ${name:?[arg]}, error if empty or undefined
-            PARAMETER_LEADING_HASH, // ${#name}, string lenght of name
-            PARAMETER_HASH, // ${name#[arg]}, remove smallest prefix pattern
-            PARAMETER_DOUBLE_HASH, // ${name##[arg]}, remove largest prefix pattern
-            PARAMETER_PERCENT, // ${name%[arg]}, remove smallest suffix pattern
-            PARAMETER_DOUBLE_PERCENT, // ${name%%[arg]}, remove lagest suffix pattern
-            PARAMETER_NO_OP, //$name , ${name}, no operation
+            /// ${name:-[arg]}, arg is the default value
+            PARAMETER_MINUS,
+            /// ${name:=[arg]}, assign default value (arg)
+            PARAMETER_EQUAL,
+            /// ${name:+[arg]}, use alternative value
+            PARAMETER_PLUS,
+            /// ${name:?[arg]}, error if empty or undefined
+            PARAMETER_MAYBE,
+            /// ${#name}, string lenght of name
+            PARAMETER_LEADING_HASH,
+            /// ${name#[arg]}, remove smallest prefix pattern
+            PARAMETER_HASH,
+            /// ${name##[arg]}, remove largest prefix pattern
+            PARAMETER_DOUBLE_HASH,
+            /// ${name%[arg]}, remove smallest suffix pattern
+            PARAMETER_PERCENT,
+            /// ${name%%[arg]}, remove lagest suffix pattern
+            PARAMETER_DOUBLE_PERCENT,
+            ///$name , ${name}, no operation
+            PARAMETER_NO_OP,
         };
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *WordParameter, allocator: *std.mem.Allocator) void {
             if (self.arg) |word_arg| {
                 word_arg.deinit(allocator);
@@ -410,6 +473,7 @@ pub const Word = struct {
             allocator.destroy(self);
         }
 
+        /// Prints the Word Parameter representation
         pub fn print(self: *WordParameter) void {
             std.debug.print("word_param ({}) name: {s} has_colon ({}) arg:", .{ self.op, self.name, self.has_colon });
             if (self.arg) |word_arg| {
@@ -421,12 +485,15 @@ pub const Word = struct {
         }
     };
 
+    /// Word Command representation, $(program) or `program`
     pub const WordCommand = struct {
         word: Word = .{ .kind = .COMMAND },
         program: ?*Node.Program,
         is_back_quoted: bool,
         range: Range,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *WordCommand, allocator: *std.mem.Allocator) void {
             if (self.program) |prog| {
                 prog.deinit(allocator);
@@ -434,6 +501,7 @@ pub const Word = struct {
             allocator.destroy(self);
         }
 
+        /// Prints the Word Command representation
         pub fn print(self: *WordCommand) void {
             std.debug.print("word_command ({}) is_back_quoted: {}\n", .{ self.range, self.is_back_quoted });
             if (self.program) |prog| {
@@ -443,21 +511,26 @@ pub const Word = struct {
         }
     };
 
+    /// Word Arithmetic representation
     pub const WordArithm = struct {
         word: Word = .{ .kind = .ARITHMETIC },
         body: *Word,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *WordArithm, allocator: *std.mem.Allocator) void {
             self.body.deinit(allocator);
             allocator.destroy(self);
         }
 
+        /// Prints the Word Arithmetic representation
         pub fn print(self: *WordArithm) void {
             std.debug.print("word_arithm ({}) body:\n   ", .{self});
             self.body.print();
         }
     };
 
+    /// Word List representation
     pub const WordList = struct {
         word: Word = .{ .kind = .LIST },
         items: []*Word,
@@ -465,6 +538,8 @@ pub const Word = struct {
         left_quote_pos: ?Position = null,
         right_quote_pos: ?Position = null,
 
+        /// Deinitializes the memory used, takes an `allocator`, it should be the one
+        /// that was used to allocate the data
         pub fn deinit(self: *WordList, allocator: *std.mem.Allocator) void {
             for (self.items) |item| {
                 item.denit(allocator);
@@ -473,6 +548,7 @@ pub const Word = struct {
             allocator.destroy(self);
         }
 
+        /// Prints the Word List representation
         pub fn print(self: *WordList) void {
             std.debug.print("word_list ({}) is_double_quoted: {} left_quote ({}) right_quote ({}):\n", .{ self.items.len, self.is_double_quoted, self.left_quote_pos, self.right_quote_pos });
             for (self.items) |item| {
@@ -483,6 +559,7 @@ pub const Word = struct {
     };
 };
 
+/// Input/Output Redirection representation
 pub const IORedir = struct {
     io_num: ?u8 = null,
     name: *Word,
@@ -491,21 +568,30 @@ pub const IORedir = struct {
     op_range: Range,
     op: IORedirKind,
 
-    usingnamespace IORedirKind;
-
+    /// Input/Output type representation
     pub const IORedirKind = enum {
-        IO_LESS, // <
-        IO_DOUBLE_LESS, // <<
-        IO_LESS_AND, // <&
-        IO_DOUBLE_LESS_DASH, // <<-
-        IO_LESS_GREAT, // <>
-        IO_GREAT, // >
-        IO_DOUBLE_GREAT, // >>
-        IO_GREAT_AND, // >&
-        IO_CLOBBER, // >|
+        /// <
+        IO_LESS,
+        /// <<
+        IO_DOUBLE_LESS,
+        /// <&
+        IO_LESS_AND,
+        /// <<-
+        IO_DOUBLE_LESS_DASH,
+        /// <>
+        IO_LESS_GREAT,
+        /// >
+        IO_GREAT,
+        /// >>
+        IO_DOUBLE_GREAT,
+        /// >&
+        IO_GREAT_AND,
+        /// >|
+        IO_CLOBBER,
     };
 };
 
+/// Assignment representation, name=value
 pub const Assign = struct {
     name: []const u8,
     value: ?*Word,
