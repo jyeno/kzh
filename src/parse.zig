@@ -79,10 +79,7 @@ pub const Parser = struct {
             try command_list_array.append(try parser.commandList());
         }
 
-        var prog = try parser.allocator.create(Node.Program);
-        prog.* = .{ .body = command_list_array.toOwnedSlice() };
-
-        return prog;
+        return try Node.Program.create(parser.allocator, .{ .body = command_list_array.toOwnedSlice() });
     }
 
     /// list  : list separator_op and_or
@@ -90,8 +87,8 @@ pub const Parser = struct {
     fn commandList(parser: *Parser) !*Node.CommandList {
         const and_or_cmd_list = try parser.andOrCmdList();
 
-        var command_list = try parser.allocator.create(Node.CommandList);
-        command_list.* = .{ .and_or_cmd_list = and_or_cmd_list };
+        // TODO improve it
+        var command_list: Node.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
 
         const separator_pos = parser.currentPos;
         if (parser.separatorOperator()) |separator| {
@@ -102,7 +99,7 @@ pub const Parser = struct {
             _ = parser.readChar();
         }
 
-        return command_list;
+        return try Node.CommandList.create(parser.allocator, command_list);
     }
 
     /// separator_op  : '&'
@@ -130,7 +127,7 @@ pub const Parser = struct {
         const pl = try parser.pipeline();
         // TODO error checking
 
-        var op_range: Range = .{ .begin = .{}, .end = .{} };
+        var op_range: Range = undefined;
 
         var bin_op_kind: AndOrCmdList.BinaryOp.BinaryOpKind = undefined;
         if (parser.isOperator(.AND, &op_range)) {
@@ -143,10 +140,10 @@ pub const Parser = struct {
 
         // TODO error if and_or_right command is invalid
         const and_or_right = try parser.andOrCmdList();
-        var binary_op = try parser.allocator.create(AndOrCmdList.BinaryOp);
-        binary_op.* = .{ .left = &pl.and_or_cmd_list, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind };
 
-        return &binary_op.and_or_cmd_list;
+        const and_or_left = try AndOrCmdList.BinaryOp.create(parser.allocator, .{ .left = &pl.and_or_cmd_list, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
+
+        return &and_or_left.and_or_cmd_list;
     }
 
     /// pipeline  : pipe_sequence
@@ -178,10 +175,7 @@ pub const Parser = struct {
             try command_array.append(cmd);
         }
 
-        var pl = try parser.allocator.create(AndOrCmdList.Pipeline);
-        pl.* = .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang, .bang_pos = bang_pos };
-
-        return pl;
+        return try AndOrCmdList.Pipeline.create(parser.allocator, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang, .bang_pos = bang_pos });
     }
 
     /// command  : simple_command
@@ -199,16 +193,12 @@ pub const Parser = struct {
     ///                 | cmd_name cmd_suffix
     ///                 | cmd_name
     fn simpleCommand(parser: *Parser) errors!*Command.SimpleCommand {
-        // if has assignment or redir it has prefix
-        // TODO above, has_prefix
-        var cmd = try parser.allocator.create(Command.SimpleCommand);
-        errdefer cmd.deinit(parser.allocator);
-        cmd.* = .{ .name = null };
-        try parser.cmdPrefix(cmd);
+        var cmd: Command.SimpleCommand = undefined;
+        try parser.cmdPrefix(&cmd);
         cmd.name = try parser.cmdName();
         if (!cmd.isEmpty()) {
-            try parser.cmdArgs(cmd);
-            return cmd;
+            try parser.cmdArgs(&cmd);
+            return try Command.SimpleCommand.create(parser.allocator, cmd);
         }
 
         return error.ExpectedCommand;
@@ -304,18 +294,16 @@ pub const Parser = struct {
     fn assignmentWord(parser: *Parser) errors!?*Assign {
         if (parser.isCurrentSymbol(.TOKEN)) {
             // maybe have error her, maybe peekName could be called from others places? TODO
-            const name_size = parser.peekName();
-
-            const string = parser.peek(name_size + 1);
-            if (string) |str| {
+            const name_size = parser.peekNameSize();
+            if (parser.peek(name_size + 1)) |str| {
                 if (name_size != 0 and str[name_size] == '=') {
-                    var name_range: Range = .{ .begin = .{}, .end = .{} };
+                    var name_range: Range = undefined;
                     if (parser.readToken(name_size, &name_range)) |name| {
                         const equal_pos = parser.currentPos;
                         _ = parser.readChar();
-                        var assign = try parser.allocator.create(Assign);
-                        assign.* = .{ .name = name, .value = try parser.word(), .name_range = name_range, .equal_pos = equal_pos };
-                        return assign;
+
+                        const word_value = try parser.word();
+                        return try Assign.create(parser.allocator, .{ .name = name, .value = word_value, .name_range = name_range, .equal_pos = equal_pos });
                     }
                 }
             }
@@ -344,12 +332,11 @@ pub const Parser = struct {
     /// IO_NUMBER
     fn IORedirNumber(parser: *Parser) ?u8 {
         if (parser.isCurrentSymbol(.TOKEN)) {
-            const redirNumOp = parser.peek(2);
-            if (redirNumOp) |numOp| {
+            if (parser.peek(2)) |numOp| {
                 if (numOp[1] == '<' or numOp[1] == '>') {
-                    const number = parser.read(1);
+                    const number = parser.read(1).?;
                     parser.resetCurrentSymbol();
-                    return std.fmt.parseInt(u8, number.?, 10) catch null;
+                    return std.fmt.parseInt(u8, number, 10) catch null;
                 }
             }
         }
@@ -368,13 +355,10 @@ pub const Parser = struct {
         const io_number = parser.IORedirNumber();
         if (io_number == null) io_num_pos = null;
 
-        var range = Range{ .begin = parser.currentPos, .end = .{} };
-        const operator = parser.IORedirOp(&range);
-        if (operator) |op| {
+        var range: Range = undefined;
+        if (parser.IORedirOp(&range)) |op| {
             if (try parser.IORedirFilename()) |filename| {
-                var io_redir = try parser.allocator.create(IORedir);
-                io_redir.* = .{ .io_num = io_number, .io_num_pos = io_num_pos, .name = filename, .op_range = range, .op = op };
-                return io_redir;
+                return try IORedir.create(parser.allocator, .{ .io_num = io_number, .io_num_pos = io_num_pos, .name = filename, .op_range = range, .op = op });
             }
         }
 
@@ -395,24 +379,22 @@ pub const Parser = struct {
         return null;
     }
 
-    const IORedirKind = IORedir.IORedirKind;
-
     /// Gets the token operator
-    fn IORedirOp(parser: *Parser, range: ?*Range) ?IORedirKind {
+    fn IORedirOp(parser: *Parser, range: ?*Range) ?IORedir.IORedirKind {
         if (parser.consumeToken("<", range)) {
-            return IORedirKind.IO_LESS;
+            return .IO_LESS;
         } else if (parser.consumeToken(">", range)) {
-            return IORedirKind.IO_GREAT;
+            return .IO_GREAT;
         } else if (parser.isOperator(.DOUBLE_GREAT, range)) {
-            return IORedirKind.IO_DOUBLE_GREAT;
+            return .IO_DOUBLE_GREAT;
         } else if (parser.isOperator(.LESS_AND, range)) {
-            return IORedirKind.IO_LESS_AND;
+            return .IO_LESS_AND;
         } else if (parser.isOperator(.GREAT_AND, range)) {
-            return IORedirKind.IO_GREAT_AND;
+            return .IO_GREAT_AND;
         } else if (parser.isOperator(.LESS_GREAT, range)) {
-            return IORedirKind.IO_LESS_GREAT;
+            return .IO_LESS_GREAT;
         } else if (parser.isOperator(.CLOBBER, range)) {
-            return IORedirKind.IO_CLOBBER;
+            return .IO_CLOBBER;
         } else {
             return null;
         }
@@ -453,26 +435,22 @@ pub const Parser = struct {
         var name_size: u8 = 0;
         // TODO test, maybe add in_brace param bool
         // maybe raise an error if the first character is invalid
-        while (true) : (name_size += 1) {
-            const string = parser.peek(name_size + 1);
-            if (string) |str| {
-                const ch = str[name_size];
-                // maybe buggy, TODO test behavior
-                if ((ch != '_' and !std.ascii.isAlNum(ch)) or std.ascii.isDigit(ch)) {
-                    return name_size;
-                }
-            } else {
+        while (parser.peek(name_size + 1)) |strPeek| : (name_size += 1) {
+            const ch = strPeek[name_size];
+            // maybe buggy, TODO test behavior
+            if ((ch != '_' and !std.ascii.isAlNum(ch)) or std.ascii.isDigit(ch)) {
                 return name_size;
             }
         }
+        return name_size;
     }
 
     /// Gets string until `len`, returns `null` if len plus
-    /// current position is bigger than parser source size.
+    /// current position is bigger than parser source size
     /// See `read`
-    fn peek(parser: *Parser, len: u16) ?[]const u8 {
-        // TODO improve it
-        const begin = parser.currentPos.column;
+    fn peek(parser: *Parser, len: usize) ?[]const u8 {
+        // TODO improve it, maybe should be
+        const begin = parser.currentPos.line + parser.currentPos.column - 1;
         const end = begin + len;
         if (end > parser.source.len) return null;
         return parser.source[begin..end];
@@ -488,19 +466,14 @@ pub const Parser = struct {
     /// Returns `null` if `len` plus current position is bigger
     /// than parser source size. If not, returns the string from
     /// current position until `len` modifying the current position
-    /// to after the returned string.
-    fn read(parser: *Parser, len: u16) ?[]const u8 {
+    /// to after the returned string
+    fn read(parser: *Parser, len: usize) ?[]const u8 {
         // TODO broken
         const string = parser.peek(len);
         if (string) |str| {
-            // TODO update currentPos
-            for (str) |ch| {
-                if (ch == '\n') {
-                    parser.currentPos.line += 1;
-                    parser.currentPos.column = 1;
-                } else {
-                    parser.currentPos.column += 1;
-                }
+            // TODO fix behavior
+            for (str) |_| {
+                parser.currentPos.column += 1;
             }
             return str;
         } else {
@@ -515,10 +488,9 @@ pub const Parser = struct {
         return if (parser.read(1)) |str| str[0] else null;
     }
 
-    /// Reads token from current position until `len`, updating the
-    /// `range`.
+    /// Reads token from current position until `len`, updating the `range`
     /// See `read`
-    fn readToken(parser: *Parser, len: u8, range: ?*Range) ?[]const u8 {
+    fn readToken(parser: *Parser, len: usize, range: ?*Range) ?[]const u8 {
         if (!parser.isCurrentSymbol(.TOKEN) or len == 0) {
             return null;
         }
@@ -544,27 +516,19 @@ pub const Parser = struct {
             return false;
         }
 
-        const begin = parser.currentPos;
-
         if (str.len == 1 and !std.ascii.isAlpha(str[0])) {
             if (parser.peekChar() != str[0]) {
                 return false;
             }
-            _ = parser.readChar();
+            _ = parser.readToken(1, range);
         } else {
-            const word_str = parser.peek(parser.peekSizeWord());
-            if (!mem.eql(u8, str, word_str.?)) {
+            const word_str = parser.peek(parser.peekWordSize()).?;
+            if (!mem.eql(u8, str, word_str)) {
                 return false;
             }
-            _ = parser.read(@intCast(u16, str.len));
+            _ = parser.readToken(str.len, range);
         }
 
-        if (range) |r| {
-            r.begin = begin;
-            r.end = parser.currentPos;
-        }
-
-        parser.resetCurrentSymbol();
         return true;
     }
 
@@ -624,7 +588,7 @@ pub const Parser = struct {
         return parser.currentSymbol.? == symbol;
     }
 
-    /// Reads symbol and changes the current symbol of the parser to it.
+    /// Reads symbol and changes the current symbol of the parser.
     fn readSymbol(parser: *Parser) void {
         const char = parser.peekChar();
         if (char) |c| {
@@ -652,7 +616,6 @@ pub const Parser = struct {
                     }
                     _ = parser.readChar();
                 }
-                // _ = parser.readChar(); // consuming the '\0' ?
                 parser.readSymbol();
             }
 
@@ -694,7 +657,8 @@ pub const Parser = struct {
             }
             unreachable;
         };
-        _ = parser.read(operator_string_len);
+
+        _ = parser.read(operator_string_len); // consume operator
 
         if (range) |r| {
             r.begin = begin;
@@ -719,16 +683,80 @@ test "Group Command" {
     // TODO
 }
 
-test "List Separation" {
-    // TODO
+test "Parse Command List Separator" {
+    const command_string = "echo oi; print test; builtin pwd &";
+
+    var parser = Parser.init(testing.allocator, command_string);
+    const program = try parser.parse();
+    defer program.deinit(testing.allocator);
+    // program.print();
+
+    const cmd_array = program.body;
+    try testing.expect(cmd_array.len == 3);
+
+    // TODO consider verify position
+    try testing.expect(cmd_array[0].is_async == false);
+    try testing.expect(cmd_array[1].is_async == false);
+    try testing.expect(cmd_array[2].is_async == true);
 }
 
-test "List Termination" {
-    // TODO
+test "Parse And Or Cmd List" {
+    const command_string = "pgrep kzh && echo kzh is running || echo kzh is not running";
+
+    var parser = Parser.init(testing.allocator, command_string);
+    const program = try parser.parse();
+    defer program.deinit(testing.allocator);
+    // program.print();
+
+    try testing.expect(program.body.len == 1);
+
+    const cmd_list = program.body[0];
+    try testing.expect(cmd_list.is_async == false);
+
+    const binary_op_left = cmd_list.and_or_cmd_list.cast(.BINARY_OP);
+    try testing.expect(binary_op_left != null);
+    try testing.expect(binary_op_left.?.kind == .AND);
+    try testing.expect(binary_op_left.?.left.cast(.PIPELINE) != null);
+
+    const binary_op_right = binary_op_left.?.right.cast(.BINARY_OP);
+    try testing.expect(binary_op_right != null);
+    try testing.expect(binary_op_right.?.kind == .OR);
+
+    try testing.expect(binary_op_right.?.left.cast(.PIPELINE) != null);
+    try testing.expect(binary_op_right.?.right.cast(.PIPELINE) != null);
 }
 
-test "Pipeline" {
-    // TODO
+test "Parse Pipeline" {
+    const command_string = "head somefile | grep 'Hello World' | tr '\n' ' '";
+
+    var parser = Parser.init(testing.allocator, command_string);
+    const program = try parser.parse();
+    defer program.deinit(testing.allocator);
+    // program.print();
+
+    const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
+    try testing.expect(pipeline.commands.len == 3);
+
+    const str_args1 = [_][]const u8{ "head", "somefile" };
+    const cmd1 = pipeline.commands[0].cast(.SIMPLE_COMMAND).?;
+    const cmd1_args = cmd1.args.?;
+    try testing.expect(mem.eql(u8, cmd1.name.?.cast(.STRING).?.str, str_args1[0]));
+    try testing.expect(mem.eql(u8, cmd1_args[0].cast(.STRING).?.str, str_args1[1]));
+
+    const str_args2 = [_][]const u8{ "grep", "Hello World" };
+    const cmd2 = pipeline.commands[1].cast(.SIMPLE_COMMAND).?;
+    const cmd2_args = cmd2.args.?;
+    try testing.expect(mem.eql(u8, cmd2.name.?.cast(.STRING).?.str, str_args2[0]));
+    try testing.expect(mem.eql(u8, cmd2_args[0].cast(.STRING).?.str, str_args2[1]));
+
+    const str_args3 = [_][]const u8{ "tr", "\n", " " };
+    const cmd3 = pipeline.commands[2].cast(.SIMPLE_COMMAND).?;
+    const cmd3_args = cmd3.args.?;
+    try testing.expect(mem.eql(u8, cmd3.name.?.cast(.STRING).?.str, str_args3[0]));
+    try testing.expect(mem.eql(u8, cmd3_args[0].cast(.STRING).?.str, str_args3[1]));
+    try testing.expect(mem.eql(u8, cmd3_args[1].cast(.STRING).?.str, str_args3[2]));
+
+    // TODO test pipeline Bangs
 }
 
 test "Parse Simple Command" {
@@ -737,14 +765,9 @@ test "Parse Simple Command" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    program.print();
+    // program.print();
 
-    try testing.expect(program.body.len == 1);
-
-    const cmd_list = program.body[0];
-    try testing.expect(cmd_list.is_async == false);
-
-    const pipeline = cmd_list.and_or_cmd_list.cast(.PIPELINE).?;
+    const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 1);
 
     const simple_command = pipeline.commands[0].cast(.SIMPLE_COMMAND).?;
