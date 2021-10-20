@@ -61,6 +61,13 @@ pub const Node = struct {
         node: Node = .{ .kind = .PROGRAM },
         body: []*CommandList,
 
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, program: Program) !*Program {
+            const prog = try allocator.create(Program);
+            prog.* = program;
+            return prog;
+        }
+
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
         pub fn deinit(self: *Program, allocator: *std.mem.Allocator) void {
@@ -88,6 +95,13 @@ pub const Node = struct {
         and_or_cmd_list: *AndOrCmdList,
         is_async: bool = false,
         separator_pos: ?Position = null,
+
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, command_list: CommandList) !*CommandList {
+            const cmd_list = try allocator.create(CommandList);
+            cmd_list.* = command_list;
+            return cmd_list;
+        }
 
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
@@ -162,6 +176,13 @@ pub const Node = struct {
             has_bang: bool,
             bang_pos: ?Position,
 
+            /// Initializes the memory using given `allocator`
+            pub fn create(allocator: *std.mem.Allocator, pipeline: Pipeline) !*Pipeline {
+                const node_pipeline = try allocator.create(Pipeline);
+                node_pipeline.* = pipeline;
+                return node_pipeline;
+            }
+
             /// Deinitializes the memory used, takes an `allocator`, it should be the one
             /// that was used to allocate the data
             pub fn deinit(self: *Pipeline, allocator: *std.mem.Allocator) void {
@@ -197,6 +218,13 @@ pub const Node = struct {
                 /// ||
                 OR,
             };
+
+            /// Initializes the memory using given `allocator`
+            pub fn create(allocator: *std.mem.Allocator, binary_op: BinaryOp) !*BinaryOp {
+                const binary_operation = try allocator.create(BinaryOp);
+                binary_operation.* = binary_op;
+                return binary_operation;
+            }
 
             /// Deinitializes the memory used, takes an `allocator`, it should be the one
             /// that was used to allocate the data
@@ -271,8 +299,11 @@ pub const Node = struct {
             io_redirs: ?[]*IORedir = null,
             assigns: ?[]*Assign = null,
 
-            pub fn isEmpty(self: *SimpleCommand) bool {
-                return self.name == null and self.io_redirs == null and self.assigns == null;
+            /// Initializes the memory using given `allocator`
+            pub fn create(allocator: *std.mem.Allocator, simple_command: SimpleCommand) !*SimpleCommand {
+                const simple_cmd = try allocator.create(SimpleCommand);
+                simple_cmd.* = simple_command;
+                return simple_cmd;
             }
 
             /// Deinitializes the memory used, takes an `allocator`, it should be the one
@@ -333,6 +364,12 @@ pub const Node = struct {
                         arg.print();
                     }
                 }
+            }
+
+            /// Checks whenether the simple command is empty, returns true if it
+            /// has no `name`, `io_redirs` and `assigns`, retuns false otherwise
+            pub fn isEmpty(self: *SimpleCommand) bool {
+                return self.name == null and self.io_redirs == null and self.assigns == null;
             }
         };
     };
@@ -415,6 +452,13 @@ pub const Word = struct {
         /// Position of the string
         range: ?Range = null,
 
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, word_string: WordString) !*Word {
+            const word_str = try allocator.create(WordString);
+            word_str.* = word_string;
+            return &word_str.word;
+        }
+
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
         pub fn deinit(self: *WordString, allocator: *std.mem.Allocator) void {
@@ -464,6 +508,13 @@ pub const Word = struct {
             PARAMETER_NO_OP,
         };
 
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, word_param: WordParameter) !*Word {
+            const word_param_expr = try allocator.create(WordParameter);
+            word_param_expr.* = word_param;
+            return &word_param_expr.word;
+        }
+
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
         pub fn deinit(self: *WordParameter, allocator: *std.mem.Allocator) void {
@@ -492,6 +543,13 @@ pub const Word = struct {
         is_back_quoted: bool,
         range: Range,
 
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, word_command: WordCommand) !*Word {
+            const command = try allocator.create(WordCommand);
+            command.* = word_command;
+            return &command.word;
+        }
+
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
         pub fn deinit(self: *WordCommand, allocator: *std.mem.Allocator) void {
@@ -516,6 +574,13 @@ pub const Word = struct {
         word: Word = .{ .kind = .ARITHMETIC },
         body: *Word,
 
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, word_arithm: WordArithm) !*Word {
+            const word_arithmetic = try allocator.create(WordArithm);
+            word_arithmetic.* = word_arithm;
+            return &word_arithmetic.word;
+        }
+
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
         pub fn deinit(self: *WordArithm, allocator: *std.mem.Allocator) void {
@@ -537,6 +602,13 @@ pub const Word = struct {
         is_double_quoted: bool,
         left_quote_pos: ?Position = null,
         right_quote_pos: ?Position = null,
+
+        /// Initializes the memory using given `allocator`
+        pub fn create(allocator: *std.mem.Allocator, word_list: WordList) !*Word {
+            const w_list = try allocator.create(WordList);
+            w_list.* = word_list;
+            return &w_list.word;
+        }
 
         /// Deinitializes the memory used, takes an `allocator`, it should be the one
         /// that was used to allocate the data
@@ -589,6 +661,13 @@ pub const IORedir = struct {
         /// >|
         IO_CLOBBER,
     };
+
+    /// Initializes the memory using given `allocator`
+    pub fn create(allocator: *std.mem.Allocator, io_redir: IORedir) !*IORedir {
+        const io_redirection = try allocator.create(IORedir);
+        io_redirection.* = io_redir;
+        return io_redirection;
+    }
 };
 
 /// Assignment representation, name=value
@@ -597,4 +676,11 @@ pub const Assign = struct {
     value: ?*Word,
     name_range: Range,
     equal_pos: Position,
+
+    /// Initializes the memory using given `allocator`
+    pub fn create(allocator: *std.mem.Allocator, assign: Assign) !*Assign {
+        const assignment = try allocator.create(Assign);
+        assignment.* = assign;
+        return assignment;
+    }
 };
