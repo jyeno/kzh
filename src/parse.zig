@@ -36,6 +36,8 @@
 //! %token  In  TODO
 //!        'in'
 
+// TODO: maybe create parse/word.zig and parse/command.zig
+// TODO: create errors instead of only returning null on some functions
 const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
@@ -151,7 +153,6 @@ pub const Parser = struct {
     /// pipe_sequence  : command
     ///                | pipe_sequence '|' linebreak command TODO linebreak
     fn pipeline(parser: *Parser) errors!*AndOrCmdList.Pipeline {
-        //TODO analyze possibility of using peek or similar to know how much allocation needs to be done
         var command_array = std.ArrayList(*Node.Command).init(parser.allocator);
         defer command_array.deinit();
 
@@ -241,7 +242,7 @@ pub const Parser = struct {
         // TODO maybe make a function create to all the nodes, then it should allocate and return the allocation
         // the values would then be already initialized
         // TODO fix it, make the above true
-        return try parser.word();
+        return try parser.word(0);
     }
 
     /// cmd_suffix  : io_redirect
@@ -257,7 +258,7 @@ pub const Parser = struct {
         while (true) {
             if (try parser.IORedirect()) |io_redir| {
                 try io_redir_array.append(io_redir);
-            } else if (try parser.word()) |word_ptr| {
+            } else if (try parser.word(0)) |word_ptr| {
                 try word_array.append(word_ptr);
             } else {
                 break;
@@ -274,26 +275,9 @@ pub const Parser = struct {
         }
     }
 
-    /// cmd_word  : WORD                   * Apply rule 7b *
-    fn word(parser: *Parser) errors!?*Word {
-        if (!parser.isCurrentSymbol(.TOKEN)) {
-            return null;
-        }
-        const len = parser.peekSizeWord();
-        var range: Range = undefined;
-        if (parser.readToken(len, &range)) |str| {
-            var word_string = try parser.allocator.create(Word.WordString);
-            word_string.* = .{ .str = str, .range = range };
-            return &word_string.word;
-        } else {
-            return null;
-        }
-    }
-
     /// ASSIGNMENT_WORD
     fn assignmentWord(parser: *Parser) errors!?*Assign {
         if (parser.isCurrentSymbol(.TOKEN)) {
-            // maybe have error her, maybe peekName could be called from others places? TODO
             const name_size = parser.peekNameSize();
             if (parser.peek(name_size + 1)) |str| {
                 if (name_size != 0 and str[name_size] == '=') {
@@ -302,13 +286,12 @@ pub const Parser = struct {
                         const equal_pos = parser.currentPos;
                         _ = parser.readChar();
 
-                        const word_value = try parser.word();
+                        const word_value = try parser.word(0);
                         return try Assign.create(parser.allocator, .{ .name = name, .value = word_value, .name_range = name_range, .equal_pos = equal_pos });
                     }
                 }
             }
         }
-
         return null;
     }
 
@@ -319,14 +302,12 @@ pub const Parser = struct {
     fn IORedirect(parser: *Parser) errors!?*IORedir {
         if (try parser.IORedirFile()) |io_file| {
             return io_file;
-        }
-
-        if (try parser.IORedirHere()) |io_here_doc| {
+        } else if (try parser.IORedirHere()) |io_here_doc| {
             return io_here_doc;
+        } else {
+            // maybe have an error here if io_number doesnt go to anyplace
+            return null;
         }
-
-        // maybe have an error here if io_number doesnt go to anyplace
-        return null;
     }
 
     /// IO_NUMBER
@@ -367,7 +348,7 @@ pub const Parser = struct {
 
     /// filename  : WORD         * Apply rule 2 *
     fn IORedirFilename(parser: *Parser) !?*Word {
-        return try parser.word(); // TODO improve it, making use of rule 2 of grammar
+        return try parser.word(0); // TODO improve it, making use of rule 2 of grammar
     }
 
     /// io_here  : DLESS     here_end
@@ -400,56 +381,376 @@ pub const Parser = struct {
         }
     }
 
-    /// Peeks the size of the current word
-    fn peekSizeWord(parser: *Parser) u8 {
+    /// cmd_word  : WORD                   * Apply rule 7b *
+    fn word(parser: *Parser, endChar: u8) errors!?*Word {
         if (!parser.isCurrentSymbol(.TOKEN)) {
-            return 0;
+            return null;
         }
-        var word_size: u8 = 0;
+        const initialChar = parser.peekChar().?;
+        if (isOperatorStart(initialChar) or initialChar == ')' or initialChar == endChar) {
+            return null;
+        }
 
-        while (true) : (word_size += 1) {
-            const string = parser.peek(word_size + 1);
-            if (string) |str| {
-                const ch = str[word_size];
-                switch (ch) {
-                    '\n', ')' => return word_size,
-                    '$', '`', '\'', '"', '\\' => return 0,
-                    else => {},
-                }
-                if (isOperatorStart(ch) or std.ascii.isBlank(ch)) {
-                    return word_size;
-                }
+        var word_array = std.ArrayList(*Word).init(parser.allocator);
+        defer word_array.deinit();
+
+        // TODO improve logic
+        var n: usize = 0;
+        while (parser.peek(n + 1)) |strPeek| {
+            const currentChar = strPeek[n];
+            if (currentChar == endChar) break;
+
+            const word_value: ?*Word = switch (currentChar) {
+                '\n', ')' => break,
+                '$' => try parser.wordDollar(),
+                '`' => try parser.wordBackQuotes(),
+                '\'' => try parser.wordSingleQuotes(),
+                '"' => try parser.wordDoubleQuotes(),
+                else => null,
+            };
+
+            if (word_value) |w_value| {
+                // TODO consider failure (wordFunc returning a null)
+                try word_array.append(w_value);
+                n = 0;
             } else {
-                return word_size;
+                n += 1;
             }
+            if (currentChar == '\\') {
+                // TODO readnewline and \\
+                n += 1;
+            } else if (isOperatorStart(currentChar) or std.ascii.isBlank(currentChar)) {
+                n -= 1;
+                break;
+            }
+        }
+
+        var range: Range = undefined;
+        if (parser.readToken(n, &range)) |str| {
+            try word_array.append(try Word.WordString.create(parser.allocator, .{ .str = str, .range = range }));
+        }
+
+        if (word_array.items.len == 0) {
+            return null;
+        } else if (word_array.items.len == 1) {
+            return word_array.items[0];
+        } else {
+            return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
         }
     }
 
-    /// A name in the shell is composition of underscores, digits
-    /// and alphanumerics, the first character can not be a digit.
-    fn peekName(parser: *Parser) u8 {
+    fn wordArithmetic(parser: *Parser) !?*Word {
+        _ = parser;
+        unreachable;
+    }
+
+    /// Creates a word command determined by back quotes
+    fn wordBackQuotes(parser: *Parser) !?*Word {
+        // TODO consider making this a generic function, to not repeat code
+        // TODO check behavior when unclosed back quotes
+        std.debug.assert(parser.readChar().? == '`');
+
+        const word_size = parser.peekWordSizeUntil('`');
+        var range: Range = undefined;
+        if (parser.readToken(word_size, &range)) |buffer| {
+            std.debug.assert(parser.readChar().? == '`');
+
+            var subparser = Parser.init(parser.allocator, buffer);
+            const sub_program = try subparser.parse();
+            return try Word.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = true, .range = range });
+        }
+        // TODO treat better the parsing error
+        std.debug.print("back quotes not terminated\n", .{});
+        return null;
+    }
+
+    fn wordCommand(parser: *Parser) !?*Word {
+        std.debug.assert(parser.readChar().? == '(');
+
+        const word_size = parser.peekWordSizeUntil(')');
+        var range: Range = undefined;
+        if (parser.readToken(word_size, &range)) |buffer| {
+            std.debug.assert(parser.readChar().? == ')');
+
+            var subparser = Parser.init(parser.allocator, buffer);
+            const sub_program = try subparser.parse();
+            return try Word.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = false, .range = range });
+        }
+
+        return null;
+    }
+
+    fn wordDollar(parser: *Parser) !?*Word {
+        std.debug.assert(parser.readChar().? == '$');
+
+        if (parser.peekChar()) |currentChar| {
+            var is_special_param = false;
+            switch (currentChar) {
+                '{' => return try parser.wordParameterExpression(),
+                '(' => {
+                    if (parser.peek(2)) |next| {
+                        if (next[1] == '(') {
+                            return try parser.wordArithmetic();
+                        } else {
+                            return try parser.wordCommand();
+                        }
+                    } else {
+                        return null; // TODO read new line of input, see ksh behavior
+                    }
+                },
+                '@', '*', '#', '?', '-', '$', '!', '0'...'9' => is_special_param = true,
+                else => {}, // TODO see if there is some error here
+            }
+
+            const name_size = blk: {
+                const size = parser.peekNameSize();
+                if (size != 0) {
+                    break :blk size;
+                } else if (is_special_param) {
+                    break :blk 1;
+                } else unreachable;
+            };
+
+            // TODO range
+            if (parser.readToken(name_size, null)) |name| {
+                return try Word.WordParameter.create(parser.allocator, .{ .name = name });
+            }
+        }
+
+        // TODO analize if should return null
+        return null;
+    }
+
+    fn wordDoubleQuotes(parser: *Parser) !?*Word {
+        const lquote_pos = parser.currentPos;
+        std.debug.assert(parser.readChar().? == '"');
+
+        var word_array = std.ArrayList(*Word).init(parser.allocator);
+        defer word_array.deinit();
+        while (parser.peekChar()) |currentChar| {
+            const word_value: ?*Word = switch (currentChar) {
+                '"' => break,
+                '`' => try parser.wordBackQuotes(),
+                '$' => try parser.wordDollar(),
+                else => null,
+            };
+
+            if (word_value) |w_value| {
+                try word_array.append(w_value);
+            } else {
+                var n: usize = 0;
+                while (parser.peek(n + 1)) |strPeek| : (n += 1) {
+                    switch (strPeek[n]) {
+                        '"', '`', '$' => break,
+                        '\\' => {
+                            if (parser.peek(n + 2)) |peek_buffer| {
+                                const peek_next_ch = peek_buffer[n + 1];
+                                switch (peek_next_ch) {
+                                    '$', '`', '"', '\\' => n += 1,
+                                    '\n' => {}, // TODO: fix behavior, should ignore peek_next_ch character
+                                    else => {},
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+                }
+                const begin = parser.currentPos;
+                if (parser.read(n)) |str| { // TODO consider re-usage of wordString
+                    const word_string = try Word.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } });
+                    try word_array.append(word_string);
+                }
+            }
+        }
+
+        std.debug.assert(parser.readChar().? == '"');
+
+        return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true, .left_quote_pos = lquote_pos, .right_quote_pos = parser.currentPos });
+    }
+
+    fn wordList(parser: *Parser, word_function: fn (*Parser, u8) errors!?*Word, endChar: u8) !?*Word {
+        var word_array = std.ArrayList(*Word).init(parser.allocator);
+        defer word_array.deinit();
+
+        while (parser.peekChar()) |currentChar| {
+            if (currentChar == endChar) break;
+
+            if (try word_function(parser, endChar)) |word_value| {
+                try word_array.append(word_value);
+            } else {
+                break;
+            }
+
+            var n: usize = 0;
+            while (parser.peek(n + 1)) |strPeek| : (n += 1) {
+                const peekCh = strPeek[n];
+                if (!std.ascii.isBlank(peekCh)) {
+                    break;
+                }
+            }
+
+            if (n > 0) {
+                const begin = parser.currentPos;
+                const str = parser.read(n).?;
+                try word_array.append(try Word.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } }));
+            } else {
+                break;
+            }
+        }
+
+        if (word_array.items.len == 0) {
+            return null;
+        } else if (word_array.items.len == 1) {
+            return word_array.items[0];
+        } else {
+            return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
+        }
+    }
+
+    const ParameterOp = Word.WordParameter.ParameterOperation;
+
+    fn wordParameterExpression(parser: *Parser) !?*Word {
+        std.debug.assert(parser.readChar().? == '{');
+
+        var param_op: ParameterOp = ParameterOp.PARAMETER_NO_OP;
+        if (parser.peekChar()) |ch| {
+            if (ch == '#') {
+                _ = parser.readChar();
+                param_op = .PARAMETER_LEADING_HASH;
+            }
+        }
+        const name_size = parser.peekNameSize();
+        if (name_size == 0) {
+            return null;
+        }
+        const name = parser.readToken(name_size, null).?;
+        var has_colon = false;
+        var arg: ?*Word = null;
+        // TODO consider if reached the end of the stream
+        if (param_op == .PARAMETER_NO_OP and parser.peekChar().? != '}') {
+            var ch = parser.readChar().?;
+            has_colon = ch == ':';
+            if (has_colon) {
+                ch = parser.readChar().?;
+            }
+            param_op = switch (ch) {
+                '-' => ParameterOp.PARAMETER_MINUS,
+                '=' => ParameterOp.PARAMETER_ASSIGN,
+                '?' => ParameterOp.PARAMETER_MAYBE,
+                '+' => ParameterOp.PARAMETER_PLUS,
+                else => blk: {
+                    if (has_colon) return null; // TODO have some error, see behavior of ksh
+
+                    const peek_next_ch = parser.peekChar().?;
+                    if (ch == peek_next_ch) {
+                        _ = parser.readChar(); // consume doubled char
+                        switch (ch) {
+                            '%' => break :blk ParameterOp.PARAMETER_DOUBLE_PERCENT,
+                            '#' => break :blk ParameterOp.PARAMETER_DOUBLE_HASH,
+                            else => return null, // TODO have better handling here, see behavior of ksh
+                        }
+                    } else {
+                        switch (ch) {
+                            '%' => break :blk ParameterOp.PARAMETER_PERCENT,
+                            '#' => break :blk ParameterOp.PARAMETER_HASH,
+                            else => return null, // TODO have better handling here, see behavior of ksh
+                        }
+                    }
+                    unreachable;
+                },
+            };
+
+            arg = try parser.wordList(word, '}');
+        }
+
+        std.debug.assert(parser.readChar().? == '}');
+
+        return try Word.WordParameter.create(parser.allocator, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon });
+    }
+
+    fn wordSingleQuotes(parser: *Parser) !?*Word {
+        std.debug.assert(parser.readChar().? == '\'');
+
+        const word_size = parser.peekWordSizeUntil('\'');
+        var range: Range = undefined;
+        if (parser.readToken(word_size, &range)) |str| {
+            std.debug.assert(parser.readChar().? == '\'');
+
+            return try Word.WordString.create(parser.allocator, .{ .str = str, .is_single_quoted = true, .range = range });
+        }
+        // TODO error or read new line
+
+        return null;
+    }
+
+    fn wordString(parser: *Parser) !?*Word {
+        const len = parser.peekWordSize();
+        var word_range: Range = undefined;
+        if (parser.readToken(len, &word_range)) |str| {
+            return try Word.WordString.create(parser.allocator, .{ .str = str, .range = word_range });
+        }
+        return null;
+    }
+
+    /// Peeks the word size until `endChar`, or 0 otherwise
+    fn peekWordSizeUntil(parser: *Parser, endChar: u8) usize {
+        // TODO read newline
+        var n: usize = 0;
+        while (parser.peek(n + 1)) |strPeek| : (n += 1) {
+            if (strPeek[n] == endChar) {
+                return n;
+            }
+        }
+        return 0;
+    }
+
+    /// Peeks the size of the current word
+    fn peekWordSize(parser: *Parser) u8 {
         if (!parser.isCurrentSymbol(.TOKEN)) {
             return 0;
         }
 
-        var name_size: u8 = 0;
-        // TODO test, maybe add in_brace param bool
-        // maybe raise an error if the first character is invalid
-        while (parser.peek(name_size + 1)) |strPeek| : (name_size += 1) {
-            const ch = strPeek[name_size];
-            // maybe buggy, TODO test behavior
-            if ((ch != '_' and !std.ascii.isAlNum(ch)) or std.ascii.isDigit(ch)) {
-                return name_size;
+        var n: u8 = 0;
+        while (parser.peek(n + 1)) |strPeek| : (n += 1) {
+            const ch = strPeek[n];
+            switch (ch) {
+                '\n', ')' => return n,
+                '$', '`', '\'', '"' => return 0,
+                '\\' => n += 1,
+                else => {
+                    if (isOperatorStart(ch) or std.ascii.isBlank(ch)) {
+                        break;
+                    }
+                },
             }
         }
-        return name_size;
+        return n;
+    }
+
+    /// A name in the shell is composition of underscores, digits
+    /// and alphanumerics, the first character can not be a digit
+    fn peekNameSize(parser: *Parser) u8 {
+        if (!parser.isCurrentSymbol(.TOKEN)) {
+            return 0;
+        }
+
+        var n: u8 = 0;
+        // TODO test, maybe add in_brace param bool
+        while (parser.peek(n + 1)) |strPeek| : (n += 1) {
+            const ch = strPeek[n];
+            if ((ch != '_' and !std.ascii.isAlNum(ch)) or
+                (n == 0 and std.ascii.isDigit(ch)))
+            {
+                break;
+            }
+        }
+        return n;
     }
 
     /// Gets string until `len`, returns `null` if len plus
     /// current position is bigger than parser source size
     /// See `read`
     fn peek(parser: *Parser, len: usize) ?[]const u8 {
-        // TODO improve it, maybe should be
         const begin = parser.currentPos.line + parser.currentPos.column - 1;
         const end = begin + len;
         if (end > parser.source.len) return null;
@@ -468,17 +769,14 @@ pub const Parser = struct {
     /// current position until `len` modifying the current position
     /// to after the returned string
     fn read(parser: *Parser, len: usize) ?[]const u8 {
-        // TODO broken
         const string = parser.peek(len);
-        if (string) |str| {
+        if (parser.peek(len)) |str| {
             // TODO fix behavior
             for (str) |_| {
                 parser.currentPos.column += 1;
             }
-            return str;
-        } else {
-            return null;
         }
+        return string;
     }
 
     /// Reads character based on current position and returns it,
@@ -494,11 +792,9 @@ pub const Parser = struct {
         if (!parser.isCurrentSymbol(.TOKEN) or len == 0) {
             return null;
         }
-
         const begin = parser.currentPos;
 
         const str = parser.read(len);
-
         if (range) |r| {
             r.begin = begin;
             r.end = parser.currentPos;
@@ -590,8 +886,7 @@ pub const Parser = struct {
 
     /// Reads symbol and changes the current symbol of the parser.
     fn readSymbol(parser: *Parser) void {
-        const char = parser.peekChar();
-        if (char) |c| {
+        if (parser.peekChar()) |c| {
             if (c == '\n') {
                 parser.currentSymbol = .NEWLINE;
             } else if (isOperatorStart(c)) {
@@ -609,6 +904,7 @@ pub const Parser = struct {
             } else if (std.ascii.isBlank(c)) {
                 _ = parser.readChar();
                 parser.readSymbol();
+                return;
             } else if (c == '#') {
                 while (parser.peekChar()) |ch| {
                     if (ch == '\n') {
@@ -616,7 +912,8 @@ pub const Parser = struct {
                     }
                     _ = parser.readChar();
                 }
-                parser.readSymbol();
+                parser.readSymbol(); // TODO consider use loop
+                return;
             }
 
             if (parser.currentSymbol == null) parser.currentSymbol = .TOKEN;
@@ -684,8 +981,7 @@ test "Group Command" {
 }
 
 test "Parse Command List Separator" {
-    const command_string = "echo oi; print test; builtin pwd &";
-
+    const command_string = "echo oi;print test; builtin pwd &";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
@@ -702,7 +998,6 @@ test "Parse Command List Separator" {
 
 test "Parse And Or Cmd List" {
     const command_string = "pgrep kzh && echo kzh is running || echo kzh is not running";
-
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
@@ -737,31 +1032,27 @@ test "Parse Pipeline" {
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 3);
 
-    const str_args1 = [_][]const u8{ "head", "somefile" };
     const cmd1 = pipeline.commands[0].cast(.SIMPLE_COMMAND).?;
     const cmd1_args = cmd1.args.?;
-    try testing.expect(mem.eql(u8, cmd1.name.?.cast(.STRING).?.str, str_args1[0]));
-    try testing.expect(mem.eql(u8, cmd1_args[0].cast(.STRING).?.str, str_args1[1]));
+    try testing.expect(mem.eql(u8, cmd1.name.?.cast(.STRING).?.str, "head"));
+    try testing.expect(mem.eql(u8, cmd1_args[0].cast(.STRING).?.str, "somefile"));
 
-    const str_args2 = [_][]const u8{ "grep", "Hello World" };
     const cmd2 = pipeline.commands[1].cast(.SIMPLE_COMMAND).?;
     const cmd2_args = cmd2.args.?;
-    try testing.expect(mem.eql(u8, cmd2.name.?.cast(.STRING).?.str, str_args2[0]));
-    try testing.expect(mem.eql(u8, cmd2_args[0].cast(.STRING).?.str, str_args2[1]));
+    try testing.expect(mem.eql(u8, cmd2.name.?.cast(.STRING).?.str, "grep"));
+    try testing.expect(mem.eql(u8, cmd2_args[0].cast(.STRING).?.str, "Hello World"));
 
-    const str_args3 = [_][]const u8{ "tr", "\n", " " };
     const cmd3 = pipeline.commands[2].cast(.SIMPLE_COMMAND).?;
     const cmd3_args = cmd3.args.?;
-    try testing.expect(mem.eql(u8, cmd3.name.?.cast(.STRING).?.str, str_args3[0]));
-    try testing.expect(mem.eql(u8, cmd3_args[0].cast(.STRING).?.str, str_args3[1]));
-    try testing.expect(mem.eql(u8, cmd3_args[1].cast(.STRING).?.str, str_args3[2]));
+    try testing.expect(mem.eql(u8, cmd3.name.?.cast(.STRING).?.str, "tr"));
+    try testing.expect(mem.eql(u8, cmd3_args[0].cast(.STRING).?.str, "\n"));
+    try testing.expect(mem.eql(u8, cmd3_args[1].cast(.STRING).?.str, " "));
 
     // TODO test pipeline Bangs
 }
 
 test "Parse Simple Command" {
     const command_string = "echo hi";
-
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
@@ -786,13 +1077,11 @@ test "Parse Simple Command" {
 
 test "Parse Simple Command with IO redirection" {
     const command_string1 = "ls >/dev/null 2>&1";
-
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
     // program1.print();
 
-    // previous test case already verify those things
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
     try testing.expect(simple_command1.args == null);
@@ -818,7 +1107,6 @@ test "Parse Simple Command with IO redirection" {
 
 test "Parse Simple Command Assignments" {
     const command_string1 = "some=thing else=where ls";
-
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
@@ -832,12 +1120,12 @@ test "Parse Simple Command Assignments" {
     try testing.expect(simple_command1.assigns != null);
     const assigns1 = simple_command1.assigns.?;
     try testing.expect(assigns1.len == 2);
-    try testing.expect(std.mem.eql(u8, assigns1[0].name, "some"));
+    try testing.expect(mem.eql(u8, assigns1[0].name, "some"));
     try testing.expect(assigns1[0].value != null);
-    try testing.expect(std.mem.eql(u8, assigns1[0].value.?.cast(.STRING).?.str, "thing"));
-    try testing.expect(std.mem.eql(u8, assigns1[1].name, "else"));
+    try testing.expect(mem.eql(u8, assigns1[0].value.?.cast(.STRING).?.str, "thing"));
+    try testing.expect(mem.eql(u8, assigns1[1].name, "else"));
     try testing.expect(assigns1[1].value != null);
-    try testing.expect(std.mem.eql(u8, assigns1[1].value.?.cast(.STRING).?.str, "where"));
+    try testing.expect(mem.eql(u8, assigns1[1].value.?.cast(.STRING).?.str, "where"));
 
     const command_string2 = "only=envvar";
     var parser2 = Parser.init(testing.allocator, command_string2);
@@ -853,7 +1141,170 @@ test "Parse Simple Command Assignments" {
     try testing.expect(simple_command2.assigns != null);
     const assigns2 = simple_command2.assigns.?;
     try testing.expect(assigns2.len == 1);
-    try testing.expect(std.mem.eql(u8, assigns2[0].name, "only"));
+    try testing.expect(mem.eql(u8, assigns2[0].name, "only"));
     try testing.expect(assigns2[0].value != null);
-    try testing.expect(std.mem.eql(u8, assigns2[0].value.?.cast(.STRING).?.str, "envvar"));
+    try testing.expect(mem.eql(u8, assigns2[0].value.?.cast(.STRING).?.str, "envvar"));
+}
+
+test "Parse Word Arithmetic" {
+    // TODO
+}
+
+test "Parse Word Command" {
+    const command_string1 = "ps_mem -p -s $(pgrep kzh)";
+    var parser1 = Parser.init(testing.allocator, command_string1);
+    const program1 = try parser1.parse();
+    defer program1.deinit(testing.allocator);
+    // program1.print();
+
+    const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command1.name != null);
+    try testing.expect(simple_command1.name.?.kind == .STRING);
+    try testing.expect(mem.eql(u8, simple_command1.name.?.cast(.STRING).?.str, "ps_mem"));
+    try testing.expect(simple_command1.args != null);
+
+    const args1 = simple_command1.args.?;
+    try testing.expect(args1[0].kind == .STRING);
+    try testing.expect(mem.eql(u8, args1[0].cast(.STRING).?.str, "-p"));
+    try testing.expect(args1[1].kind == .STRING);
+    try testing.expect(mem.eql(u8, args1[1].cast(.STRING).?.str, "-s"));
+    try testing.expect(args1[2].kind == .COMMAND);
+    try testing.expect(args1[2].cast(.COMMAND).?.is_back_quoted == false);
+
+    const sub_program1 = args1[2].cast(.COMMAND).?.program;
+    try testing.expect(sub_program1 != null);
+
+    const sub_simple_cmd1 = sub_program1.?.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(sub_simple_cmd1.name != null);
+    try testing.expect(sub_simple_cmd1.name.?.kind == .STRING);
+    try testing.expect(mem.eql(u8, sub_simple_cmd1.name.?.cast(.STRING).?.str, "pgrep"));
+    try testing.expect(sub_simple_cmd1.args != null);
+
+    const sub_args1 = sub_simple_cmd1.args.?;
+    try testing.expect(args1[0].kind == .STRING);
+    try testing.expect(mem.eql(u8, sub_args1[0].cast(.STRING).?.str, "kzh"));
+
+    const command_string2 = "ls `pwd`";
+    var parser2 = Parser.init(testing.allocator, command_string2);
+    const program2 = try parser2.parse();
+    defer program2.deinit(testing.allocator);
+    // program2.print();
+
+    const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command2.name != null);
+    try testing.expect(simple_command2.name.?.kind == .STRING);
+    try testing.expect(mem.eql(u8, simple_command2.name.?.cast(.STRING).?.str, "ls"));
+    try testing.expect(simple_command2.args != null);
+
+    const args2 = simple_command2.args.?;
+    try testing.expect(args2[0].kind == .COMMAND);
+    try testing.expect(args2[0].cast(.COMMAND).?.is_back_quoted == true);
+
+    const sub_program2 = args2[0].cast(.COMMAND).?.program;
+    try testing.expect(sub_program2 != null);
+
+    const sub_simple_cmd2 = sub_program2.?.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(sub_simple_cmd2.name != null);
+    try testing.expect(sub_simple_cmd2.name.?.kind == .STRING);
+    try testing.expect(mem.eql(u8, sub_simple_cmd2.name.?.cast(.STRING).?.str, "pwd"));
+}
+
+test "Parse Word Parameter" {
+    const command_string = "echo $HOME ${NOTHOME:-not home} ${VAR:=PWD} ${VAR:+HOME} ${NOTHOME:?VAR} ${#HOME} ${SOMESCRIPT1#.sh} ${SOMESCRIPT22##.sh} ${SOMESCRIPT333%.sh} ${S0MESCRIPT4%%.sh}";
+    var parser = Parser.init(testing.allocator, command_string);
+    const program = try parser.parse();
+    defer program.deinit(testing.allocator);
+    // program.print();
+
+    const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command.args != null);
+
+    const args = simple_command.args.?;
+    try testing.expect(args.len == 10);
+
+    const parameter_names = [_][]const u8{ "HOME", "NOTHOME", "VAR", "VAR", "NOTHOME", "HOME", "SOMESCRIPT1", "SOMESCRIPT22", "SOMESCRIPT333", "S0MESCRIPT4" };
+    var param_array: [10]*Word.WordParameter = undefined;
+    for (args) |arg, index| {
+        try testing.expect(arg.kind == .PARAMETER);
+        const param = arg.cast(.PARAMETER).?;
+        param_array[index] = param;
+        try testing.expect(mem.eql(u8, param.name, parameter_names[index]));
+    }
+
+    try testing.expect(param_array[0].op == .PARAMETER_NO_OP);
+    try testing.expect(param_array[0].has_colon == false);
+    try testing.expect(param_array[0].arg == null);
+
+    try testing.expect(param_array[1].op == .PARAMETER_MINUS);
+    try testing.expect(param_array[1].has_colon == true);
+    try testing.expect(param_array[1].arg != null);
+
+    try testing.expect(param_array[2].op == .PARAMETER_ASSIGN);
+    try testing.expect(param_array[2].has_colon == true);
+    try testing.expect(param_array[2].arg != null);
+
+    try testing.expect(param_array[3].op == .PARAMETER_PLUS);
+    try testing.expect(param_array[3].has_colon == true);
+    try testing.expect(param_array[3].arg != null);
+
+    try testing.expect(param_array[4].op == .PARAMETER_MAYBE);
+    try testing.expect(param_array[4].has_colon == true);
+    try testing.expect(param_array[4].arg != null);
+
+    try testing.expect(param_array[5].op == .PARAMETER_LEADING_HASH);
+    try testing.expect(param_array[5].has_colon == false);
+    try testing.expect(param_array[5].arg == null);
+
+    try testing.expect(param_array[6].op == .PARAMETER_HASH);
+    try testing.expect(param_array[6].has_colon == false);
+    try testing.expect(param_array[6].arg != null);
+
+    try testing.expect(param_array[7].op == .PARAMETER_DOUBLE_HASH);
+    try testing.expect(param_array[7].has_colon == false);
+    try testing.expect(param_array[7].arg != null);
+
+    try testing.expect(param_array[8].op == .PARAMETER_PERCENT);
+    try testing.expect(param_array[8].has_colon == false);
+    try testing.expect(param_array[8].arg != null);
+
+    try testing.expect(param_array[9].op == .PARAMETER_DOUBLE_PERCENT);
+    try testing.expect(param_array[9].has_colon == false);
+    try testing.expect(param_array[9].arg != null);
+}
+
+test "Parse Word Quotes and backslash" {
+    const command_string = "echo \"home $HOME dir\" '$NOTVAR' word\\ with\\ spaces";
+    var parser = Parser.init(testing.allocator, command_string);
+    const program = try parser.parse();
+    defer program.deinit(testing.allocator);
+    program.print();
+
+    const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(simple_command.args != null);
+
+    const args = simple_command.args.?;
+    try testing.expect(args[0].kind == .LIST);
+    try testing.expect(args[1].kind == .STRING);
+    try testing.expect(args[2].kind == .STRING);
+
+    const word_arg1 = args[0].cast(.LIST).?;
+    try testing.expect(word_arg1.is_double_quoted == true);
+    try testing.expect(word_arg1.items.len == 3);
+
+    try testing.expect(word_arg1.items[0].kind == .STRING);
+    try testing.expect(mem.eql(u8, word_arg1.items[0].cast(.STRING).?.str, "home "));
+
+    try testing.expect(word_arg1.items[1].kind == .PARAMETER);
+    try testing.expect(word_arg1.items[1].cast(.PARAMETER).?.op == .PARAMETER_NO_OP);
+
+    try testing.expect(word_arg1.items[2].kind == .STRING);
+    try testing.expect(mem.eql(u8, word_arg1.items[2].cast(.STRING).?.str, " dir"));
+
+    const word_arg2 = args[1].cast(.STRING).?;
+    try testing.expect(word_arg2.is_single_quoted == true);
+    try testing.expect(mem.eql(u8, word_arg2.str, "$NOTVAR"));
+
+    const word_arg3 = args[2].cast(.STRING).?;
+    try testing.expect(word_arg3.is_single_quoted == false);
+    try testing.expect(mem.eql(u8, word_arg3.str, "word\\ with\\ spaces"));
 }

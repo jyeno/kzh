@@ -310,10 +310,12 @@ pub const Node = struct {
             /// that was used to allocate the data
             pub fn deinit(self: *SimpleCommand, allocator: *std.mem.Allocator) void {
                 // TODO proper word deinit
-                if (self.name) |word_name| allocator.destroy(word_name);
+                if (self.name) |word_name| {
+                    word_name.deinit(allocator);
+                }
                 if (self.args) |args| {
                     for (args) |arg| {
-                        allocator.destroy(arg);
+                        arg.deinit(allocator);
                     }
                     allocator.free(args);
                 }
@@ -489,7 +491,7 @@ pub const Word = struct {
             /// ${name:-[arg]}, arg is the default value
             PARAMETER_MINUS,
             /// ${name:=[arg]}, assign default value (arg)
-            PARAMETER_EQUAL,
+            PARAMETER_ASSIGN,
             /// ${name:+[arg]}, use alternative value
             PARAMETER_PLUS,
             /// ${name:?[arg]}, error if empty or undefined
@@ -614,7 +616,7 @@ pub const Word = struct {
         /// that was used to allocate the data
         pub fn deinit(self: *WordList, allocator: *std.mem.Allocator) void {
             for (self.items) |item| {
-                item.denit(allocator);
+                item.deinit(allocator);
             }
             allocator.free(self.items);
             allocator.destroy(self);
