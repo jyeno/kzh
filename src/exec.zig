@@ -1,6 +1,7 @@
 const std = @import("std");
 const os = std.os;
 const builtins = @import("builtins.zig").builtins;
+const symtab = @import("symtab.zig");
 const ast = @import("ast.zig");
 const Node = ast.Node;
 const AndOrCmdList = Node.AndOrCmdList;
@@ -81,18 +82,27 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
         return builtin(argv);
     }
 
-    // TODO, analyze if this is a good idea, and how to treat the errors if any
-    var buffer: [512]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = &fba.allocator;
+    // var buffer: [4096]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    // const allocator = &fba.allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = &gpa.allocator;
+    defer {
+        const leaked = gpa.deinit();
+        if (leaked) std.debug.print("Memory leaked.\n", .{});
+    }
 
     var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, argv.len + 1);
-    defer argvZ.deinit();
+    defer {
+        for (argvZ.items) |arg| {
+            if (arg) |value| allocator.destroy(value);
+        }
+        argvZ.deinit();
+    }
 
     for (argv) |arg| {
         argvZ.appendAssumeCapacity(try std.mem.dupeZ(allocator, u8, arg));
     }
-    argvZ.appendAssumeCapacity(null);
 
     const pid = std.os.fork() catch |err| {
         switch (err) {
@@ -102,6 +112,7 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
         return 1;
     };
     if (pid == 0) {
+        // TODO put it on other place
         if (io_redirs) |io_redirections| {
             for (io_redirections) |io_redir| {
                 var source_fd: os.fd_t = undefined;
@@ -121,8 +132,13 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
                 };
             }
         }
-        var envZ = [_:null]?[*:0]const u8{null}; // TODO get env
-        switch (std.os.execvpeZ(argvZ.items[0].?, @ptrCast([*:null]const ?[*:0]const u8, argvZ.toOwnedSlice()), envZ[0..])) {
+        const args = try argvZ.toOwnedSliceSentinel(null);
+        defer allocator.free(args);
+
+        const envp = try symtab.global_symtab.dupeZ(allocator);
+        defer allocator.free(envp);
+
+        switch (std.os.execvpeZ(args[0].?, args, envp)) {
             error.FileNotFound => printError("kzh: {s}: not found\n", .{argv[0]}),
             error.AccessDenied => printError("kzh: {s}: cannot execute - Permission denied\n", .{argv[0]}),
             else => |err| printError("some problem happened: {}\n", .{err}),

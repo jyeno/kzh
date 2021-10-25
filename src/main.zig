@@ -1,6 +1,7 @@
 const std = @import("std");
 const Parser = @import("parse.zig").Parser;
 const kzhExit = @import("builtins/exit.zig").kzhExit;
+const SymTab = @import("symtab.zig");
 const executor = @import("exec.zig");
 
 // TODO make general purpose allocatorglobal, then deinit it at kzhExit
@@ -13,11 +14,20 @@ pub fn main() anyerror!void {
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
 
+    try init(alloca, interative_mode);
+    defer SymTab.global_symtab.deinit();
+
     if (interative_mode) {
         kzhLoop(alloca) catch |err| switch (err) {
             else => std.debug.print("{}\n", .{err}),
         };
     }
+}
+
+pub fn init(allocator: *std.mem.Allocator, interative_mode: bool) !void {
+    _ = interative_mode;
+
+    try SymTab.initGlobalSymbolTable(allocator);
 }
 
 /// kzh main loop, used when the program is run in interactive mode
@@ -38,10 +48,9 @@ pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
                 continue;
             };
             defer program.deinit(alloca);
+            // program.print();
 
-            program.print();
-
-            // result = try executor.runProgram(program);
+            result = try executor.runProgram(program);
         }
     }
 }
@@ -51,5 +60,5 @@ test "Test All" {
     _ = @import("parse.zig");
     _ = @import("exec.zig");
     _ = @import("builtins.zig");
-    // _ = @import("symtab.zig");
+    _ = @import("symtab.zig");
 }
