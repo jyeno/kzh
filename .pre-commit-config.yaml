@@ -12,6 +12,7 @@ repos:
         name: "Zig Test"
         entry: zig test src/main.zig
         language: system
+        always_run: true
         pass_filenames: false
 
       - id: zig-fmt
