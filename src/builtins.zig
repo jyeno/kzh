@@ -158,4 +158,3 @@ test "Test Builtins" {
     _ = @import("builtins/pwd.zig");
     _ = @import("builtins/true.zig");
 }
-// TODO figure out how to make tests with the Option struct
