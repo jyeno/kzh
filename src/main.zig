@@ -1,7 +1,7 @@
 const std = @import("std");
 const Parser = @import("parse.zig").Parser;
 const kzhExit = @import("builtins/exit.zig").kzhExit;
-const SymTab = @import("symtab.zig");
+const symtab = @import("symtab.zig");
 const executor = @import("exec.zig");
 
 // TODO make general purpose allocatorglobal, then deinit it at kzhExit
@@ -15,7 +15,9 @@ pub fn main() anyerror!void {
     }
 
     try init(alloca, interative_mode);
-    defer SymTab.global_symtab.deinit();
+    defer {
+        symtab.global_symtab.deinit();
+    }
 
     if (interative_mode) {
         kzhLoop(alloca) catch |err| switch (err) {
@@ -24,14 +26,14 @@ pub fn main() anyerror!void {
     }
 }
 
-pub fn init(allocator: *std.mem.Allocator, interative_mode: bool) !void {
+fn init(allocator: *std.mem.Allocator, interative_mode: bool) !void {
     _ = interative_mode;
 
-    try SymTab.initGlobalSymbolTable(allocator);
+    try symtab.initGlobalSymbolTable(allocator);
 }
 
 /// kzh main loop, used when the program is run in interactive mode
-pub fn kzhLoop(alloca: *std.mem.Allocator) !void {
+fn kzhLoop(alloca: *std.mem.Allocator) !void {
     var result: u8 = 0;
     while (true) {
         var algo: [256]u8 = undefined;
