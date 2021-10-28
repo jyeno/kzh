@@ -98,7 +98,6 @@ pub const Parser = struct {
                 command_list.is_async = true;
             }
             command_list.separator_pos = separator_pos;
-            _ = parser.readChar();
         }
 
         return try Node.CommandList.create(parser.allocator, command_list);
@@ -990,10 +989,18 @@ test "Parse Command List Separator" {
     const cmd_array = program.body;
     try testing.expect(cmd_array.len == 3);
 
-    // TODO consider verify position
+    // TODO verify name of each command
     try testing.expect(cmd_array[0].is_async == false);
+    const simple_command1 = cmd_array[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(mem.eql(u8, simple_command1.name.?.cast(.STRING).?.str, "echo"));
+
     try testing.expect(cmd_array[1].is_async == false);
+    const simple_command2 = cmd_array[1].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(mem.eql(u8, simple_command2.name.?.cast(.STRING).?.str, "print"));
+
     try testing.expect(cmd_array[2].is_async == true);
+    const simple_command3 = cmd_array[2].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
+    try testing.expect(mem.eql(u8, simple_command3.name.?.cast(.STRING).?.str, "builtin"));
 }
 
 test "Parse And Or Cmd List" {
@@ -1277,7 +1284,7 @@ test "Parse Word Quotes and backslash" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    program.print();
+    // program.print();
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);
