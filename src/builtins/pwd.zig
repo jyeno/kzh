@@ -18,7 +18,7 @@ const options = [_]Option(PwdOptions){
 /// If the -L option is used or if the physical option isn't set (see `set` builtin),
 /// the logical path is printed. If the -P option is used or the physical option is set,
 /// the path determined from the filesystem is printed.
-pub fn kzhPwd(args: [][]const u8) u8 {
+pub fn kzhPwd(args: []const []const u8) u8 {
     var resolve_symlinks = false; // default behavior, TODO get physical option
 
     var it = OptIterator(PwdOptions).init(options[0..], args);

@@ -26,7 +26,7 @@ const options = [_]Option(CdOptions){
 /// If the -P option (physical path) is used or if the physical option is set, ‘..’ is relative
 /// to the filesystem directory tree. The PWD and OLDPWD parameters are updated to reflect the
 /// current and old working directory, respectively.
-pub fn kzhCd(args: [][]const u8) u8 {
+pub fn kzhCd(args: []const []const u8) u8 {
     var resolve_symlinks = false; // default behavior, TODO get physical option
 
     var it = OptIterator(CdOptions).init(options[0..], args);

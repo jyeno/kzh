@@ -6,7 +6,7 @@ const testing = @import("std").testing;
 /// builtin command [arg ...]
 ///
 /// Execute the built-in `command`.
-pub fn kzhBuiltin(args: [][]const u8) u8 {
+pub fn kzhBuiltin(args: []const []const u8) u8 {
     if (args.len == 1) {
         return 0;
     }
@@ -18,16 +18,9 @@ pub fn kzhBuiltin(args: [][]const u8) u8 {
 }
 
 test "builtin 'builtin'" {
-    var argv1 = [_][]const u8{"builtin"};
-    try testing.expect(kzhBuiltin(argv1[0..]) == 0);
-
-    var argv2 = [_][]const u8{ "builtin", "true" };
-    try testing.expect(kzhBuiltin(argv2[0..]) == 0);
-
-    var argv3 = [_][]const u8{ "builtin", "false" };
-    try testing.expect(kzhBuiltin(argv3[0..]) == 1);
-
+    try testing.expect(kzhBuiltin(&.{"builtin"}) == 0);
+    try testing.expect(kzhBuiltin(&.{ "builtin", "true" }) == 0);
+    try testing.expect(kzhBuiltin(&.{ "builtin", "false" }) == 1);
     // TODO dont print the error
-    var argv4 = [_][]const u8{ "builtin", "notbuiltin" };
-    try testing.expect(kzhBuiltin(argv4[0..]) == 1);
+    try testing.expect(kzhBuiltin(&.{ "builtin", "notbuiltin" }) == 1);
 }

@@ -7,7 +7,7 @@
 const std = @import("std");
 const printError = std.debug.print;
 
-pub const builtins = std.ComptimeStringMap(fn ([][]const u8) u8, .{
+pub const builtins = std.ComptimeStringMap(fn ([]const []const u8) u8, .{
     .{ "builtin", @import("builtins/builtin.zig").kzhBuiltin },
     .{ "cd", @import("builtins/cd.zig").kzhCd }, // not completed
     .{ "echo", @import("builtins/echo.zig").kzhEcho }, // not completed
@@ -46,7 +46,7 @@ fn OptToken(comptime T: type) type {
 pub fn OptIterator(comptime T: type) type {
     return struct {
         opts: []const Opt,
-        argv: [][]const u8,
+        argv: []const []const u8,
         opt_index: u8 = 1,
         arg_index: u8 = 1,
         opt_pos: u8 = 0,
@@ -56,7 +56,7 @@ pub fn OptIterator(comptime T: type) type {
         const Token = OptToken(T);
 
         /// Initializes the OptIterator
-        pub fn init(opts: []const Opt, argv: [][]const u8) Self {
+        pub fn init(opts: []const Opt, argv: []const []const u8) Self {
             return Self{ .opts = opts, .argv = argv };
         }
 

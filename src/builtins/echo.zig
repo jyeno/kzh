@@ -22,7 +22,7 @@ const options = [_]Option(EchoOptions){
 /// The options are provided for compatibility with BSD shell scripts.
 /// The -n option suppresses the trailing newline, -e enables backslash interpretation (a no-op,
 /// since this is normally done), and -E suppresses backslash interpretation.
-pub fn kzhEcho(args: [][]const u8) u8 {
+pub fn kzhEcho(args: []const []const u8) u8 {
     var it = OptIterator(EchoOptions).init(options[0..], args);
     var enable_backslash = true; // default behavior
     var supress_newline = false;
