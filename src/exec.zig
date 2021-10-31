@@ -13,51 +13,9 @@ const Range = ast.Range;
 const IORedir = ast.IORedir;
 const printError = std.debug.print;
 
-pub fn runProgram(program: *Node.Program) !u8 {
-    return try runCommandListArray(program.body);
-}
-
-fn runCommandListArray(cmd_list_array: []*Node.CommandList) !u8 {
-    var ret: u8 = undefined;
-    for (cmd_list_array) |cmd_list| {
-        ret = try runAndOrCmdList(cmd_list.and_or_cmd_list);
-    }
-    return ret;
-}
-
-fn runAndOrCmdList(and_or_list: *Node.AndOrCmdList) !u8 {
-    if (and_or_list.cast(.PIPELINE)) |pipeline| {
-        return try runPipeline(pipeline);
-    } else if (and_or_list.cast(.BINARY_OP)) |binary_op| {
-        // TODO fix, make it the and_or_cmd_list
-        return try runBinaryOp(binary_op);
-    }
-    unreachable;
-}
-
-fn runPipeline(pipeline: *AndOrCmdList.Pipeline) !u8 {
-    if (pipeline.commands.len == 1) {
-        // TODO improve it, whenever it has bang or not
-        return try runCommand(pipeline.commands[0]);
-    }
-    unreachable;
-}
-
-fn runBinaryOp(binary_op: *AndOrCmdList.BinaryOp) !u8 {
-    _ = binary_op;
-    unreachable;
-}
-
-fn runCommand(command: *Command) !u8 {
-    if (command.cast(.SIMPLE_COMMAND)) |simple_command| {
-        return try runSimpleCommand(simple_command);
-    }
-    unreachable;
-}
-
 const BoundedArray = std.BoundedArray([]const u8, 60);
 
-fn runSimpleCommand(simple_command: *Command.SimpleCommand) !u8 {
+pub fn simpleCommand(simple_command: *Command.SimpleCommand) !u8 {
     if (simple_command.name) |word_name| {
         var argv: BoundedArray = undefined;
         if (simple_command.args) |args| {
@@ -81,11 +39,14 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
         // TODO support redir on builtins
         return builtin(argv);
     }
+    // TODO analize a way to not allocate too much memory
 
     // var buffer: [4096]u8 = undefined;
     // var fba = std.heap.FixedBufferAllocator.init(&buffer);
     // const allocator = &fba.allocator;
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    gpa.setRequestedMemoryLimit(5000);
+
     const allocator = &gpa.allocator;
     defer {
         const leaked = gpa.deinit();
@@ -172,4 +133,8 @@ fn processRedirection(io_redir: *IORedir, source_fd: *os.fd_t) !os.fd_t {
         }
     }
     return dest_fd;
+}
+
+test "Exec Simple Command" {
+    // TODO
 }
