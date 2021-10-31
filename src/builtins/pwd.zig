@@ -37,14 +37,23 @@ pub fn kzhPwd(args: []const []const u8) u8 {
         return 1;
     }
 
+    var cwdBuffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var pwd: []const u8 = undefined;
     if (resolve_symlinks) {
-        var cwdBuffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const pwd = std.os.getcwd(&cwdBuffer);
-        writer.print("{s}\n", .{pwd}) catch return 1;
+        pwd = std.os.getcwd(&cwdBuffer) catch |err| {
+            std.debug.print("pwd err: {}\n", .{err});
+            return 1;
+        };
     } else {
-        // TODO check if variable is empty
-        writer.print("{s}\n", .{symtab.global_symtab.lookup("PWD").?.str}) catch return 1;
+        // TODO tests
+        if (symtab.global_symtab.lookup("PWD")) |value| {
+            pwd = value;
+        } else {
+            var fba = std.heap.FixedBufferAllocator.init(&cwdBuffer);
+            pwd = std.fs.path.resolve(&fba.allocator, &[_][]const u8{"."}) catch return 1;
+        }
     }
 
+    writer.print("{s}\n", .{pwd}) catch return 1;
     return 0;
 }

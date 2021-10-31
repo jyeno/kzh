@@ -41,14 +41,16 @@ pub fn kzhCd(args: []const []const u8) u8 {
 
     var should_print_path = false;
     var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
 
     // TODO treat possibilities of error
+    // TODO CDPATH
     const old_pwd = symtab.global_symtab.lookup("PWD").?;
-    var new_pwd: []const u8 = symtab.global_symtab.lookup("HOME").?.str;
+    var new_pwd: []const u8 = symtab.global_symtab.lookup("HOME").?;
     if (it.nextArg()) |arg| {
         if (std.mem.eql(u8, arg, "-")) {
             if (symtab.global_symtab.lookup("OLDPWD")) |value| {
-                new_pwd = value.str;
+                new_pwd = value;
                 should_print_path = true;
             } else {
                 writer.print("-", .{}) catch return 1;
@@ -57,14 +59,12 @@ pub fn kzhCd(args: []const []const u8) u8 {
         } else if (resolve_symlinks) {
             new_pwd = std.os.realpath(arg, &buffer) catch return 1;
         } else {
-            // TODO get absolute path of the file if necessary
-            new_pwd = std.os.realpath(arg, &buffer) catch return 1;
+            new_pwd = std.fs.path.resolve(&fba.allocator, &[_][]const u8{arg}) catch return 1;
         }
     }
 
     if (it.nextArg()) |arg| {
-        _ = arg; // ignoring arg
-        // TODO figure out how cd with two args work
+        _ = arg; // TODO figure out how cd with two args work
         printError("kzh: cd: bad substitution\n", .{});
         return 1;
     }
@@ -83,7 +83,7 @@ pub fn kzhCd(args: []const []const u8) u8 {
     };
     if (should_print_path) writer.print("{s}\n", .{new_pwd}) catch return 1;
 
-    symtab.global_symtab.putCopyVal("PWD", .{ .str = new_pwd }) catch return 1;
+    symtab.global_symtab.putCopyVal("PWD", new_pwd) catch return 1;
     symtab.global_symtab.put("OLDPWD", old_pwd) catch return 1;
 
     return 0;
