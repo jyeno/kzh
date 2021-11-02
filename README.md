@@ -1,66 +1,26 @@
+# Korn Zig sHell
+
 A shell posix implemented using zig, for learning purposes.
 
 Based on Korn shell
 
-TODO rest of README
+see [TODO](https://gitlab.com/jyeno/kzh/blob/master/TODO.md) for a list of planned fixes/improvements
 
-- [ ] output/input redirection (>, >>, <, <<, >&, <&)
+## current features:
 
-- [ ] pipe (|) and async pipe (|&)
+* binary operations (&& ||)
+* simple command (pipeline with 1 command)
+* execution with environment variables
 
-- [ ] implement readline and vi mode on it
+## halfway features:
 
-- [ ] assignable keybinds
+* word expansion (already parses word parameter, word command, word list, word string)
+* job control (creation of jobs, async job)
 
-- [ ] run commands
+## builtins:
 
-- [ ] environment variables
-
-- [ ] PS1, PS2, PS3
-
-- [ ] user made functions
-
-- [ ] builtins functions/programs
-
- * alias
- * cd - partial
- * exit - partial
- * readonly
- * set
- * typeset
- * which
- * command
- * false - complete
- * bg
- * fg
- * fc
- * getopts
- * jobs
- * kill
- * pwd - partial
- * read
- * true - complete
- * umask
- * unalias
- * wait
- * [, test
- * echo - partial
- * let
- * print
- * suspend
- * ulimit
- * whence
- * .
- * :
- * break
- * continue
- * eval
- * exec
- * export
- * readonly
- * return
- * set
- * shift
- * times
- * trap
- * unset
+* cd (needs support to CDPATH)
+* pwd
+* builtin
+* true, false
+* exit (needs deinitialize resources and jobs)
