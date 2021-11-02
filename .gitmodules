@@ -1,3 +1,0 @@
-[submodule "deps/linenoize"]
-	path = deps/linenoize
-	url = https://github.com/joachimschmidt557/linenoize
