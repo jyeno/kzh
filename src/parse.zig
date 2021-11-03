@@ -42,9 +42,8 @@ const std = @import("std");
 const mem = std.mem;
 const testing = std.testing;
 const ast = @import("ast.zig");
-const Node = ast.Node;
-const AndOrCmdList = Node.AndOrCmdList;
-const Command = Node.Command;
+const AndOrCmdList = ast.AndOrCmdList;
+const Command = ast.Command;
 const Word = ast.Word;
 const IORedir = ast.IORedir;
 const Assign = ast.Assign;
@@ -67,30 +66,30 @@ pub const Parser = struct {
 
     /// Generates an Abstract Syntax Tree based on the tokens received using
     /// recursive descent parsing, with the Visitor Pattern
-    pub fn parse(parser: *Parser) !*Node.Program {
+    pub fn parse(parser: *Parser) !*ast.Program {
         return try parser.program();
     }
 
     /// complete_command  : list separator
     ///                   | list
-    fn program(parser: *Parser) !*Node.Program {
-        var command_list_array = std.ArrayList(*Node.CommandList).init(parser.allocator);
+    fn program(parser: *Parser) !*ast.Program {
+        var command_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
         defer command_list_array.deinit();
 
         while (!parser.atEnd()) {
             try command_list_array.append(try parser.commandList());
         }
 
-        return try Node.Program.create(parser.allocator, .{ .body = command_list_array.toOwnedSlice() });
+        return try ast.Program.create(parser.allocator, .{ .body = command_list_array.toOwnedSlice() });
     }
 
     /// list  : list separator_op and_or
     ///       | and_or
-    fn commandList(parser: *Parser) !*Node.CommandList {
+    fn commandList(parser: *Parser) !*ast.CommandList {
         const and_or_cmd_list = try parser.andOrCmdList();
 
         // TODO improve it
-        var command_list: Node.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
+        var command_list: ast.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
 
         const separator_pos = parser.currentPos;
         if (parser.separatorOperator()) |separator| {
@@ -100,7 +99,7 @@ pub const Parser = struct {
             command_list.separator_pos = separator_pos;
         }
 
-        return try Node.CommandList.create(parser.allocator, command_list);
+        return try ast.CommandList.create(parser.allocator, command_list);
     }
 
     /// separator_op  : '&'
@@ -124,35 +123,36 @@ pub const Parser = struct {
     /// and_or  : pipeline
     ///         | and_or AND_IF linebreak pipeline
     ///         | and_or OR_IF  linebreak pipeline
-    fn andOrCmdList(parser: *Parser) errors!*AndOrCmdList {
+    fn andOrCmdList(parser: *Parser) errors!AndOrCmdList {
         const pl = try parser.pipeline();
         // TODO error checking
 
         var op_range: Range = undefined;
 
-        var bin_op_kind: AndOrCmdList.BinaryOp.BinaryOpKind = undefined;
+        var bin_op_kind: ast.BinaryOp.BinaryOpKind = undefined;
         if (parser.isOperator(.AND, &op_range)) {
-            bin_op_kind = AndOrCmdList.BinaryOp.BinaryOpKind.AND;
+            bin_op_kind = ast.BinaryOp.BinaryOpKind.AND;
         } else if (parser.isOperator(.OR, &op_range)) {
-            bin_op_kind = AndOrCmdList.BinaryOp.BinaryOpKind.OR;
+            bin_op_kind = ast.BinaryOp.BinaryOpKind.OR;
         } else {
-            return &pl.and_or_cmd_list;
+            return pl.andOrCmd();
         }
 
         // TODO error if and_or_right command is invalid
+        // maybe create here should just return the andOrCmd()
         const and_or_right = try parser.andOrCmdList();
 
-        const and_or_left = try AndOrCmdList.BinaryOp.create(parser.allocator, .{ .left = &pl.and_or_cmd_list, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
+        const and_or_left = try ast.BinaryOp.create(parser.allocator, .{ .left = pl.andOrCmd(), .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
 
-        return &and_or_left.and_or_cmd_list;
+        return and_or_left.andOrCmd();
     }
 
     /// pipeline  : pipe_sequence
     ///           | Bang pipe_sequence
     /// pipe_sequence  : command
     ///                | pipe_sequence '|' linebreak command TODO linebreak
-    fn pipeline(parser: *Parser) errors!*AndOrCmdList.Pipeline {
-        var command_array = std.ArrayList(*Node.Command).init(parser.allocator);
+    fn pipeline(parser: *Parser) errors!*ast.Pipeline {
+        var command_array = std.ArrayList(ast.Command).init(parser.allocator);
         defer command_array.deinit();
 
         var range: Range = undefined;
@@ -175,16 +175,16 @@ pub const Parser = struct {
             try command_array.append(cmd);
         }
 
-        return try AndOrCmdList.Pipeline.create(parser.allocator, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang, .bang_pos = bang_pos });
+        return try ast.Pipeline.create(parser.allocator, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang, .bang_pos = bang_pos });
     }
 
     /// command  : simple_command
     ///          | compound_command TODO
     ///          | compound_command redirect_list TODO
     ///          | function_definition TODO
-    fn command(parser: *Parser) errors!*Node.Command {
+    fn command(parser: *Parser) errors!Command {
         const simple_command = try parser.simpleCommand();
-        return &simple_command.command;
+        return simple_command.cmd();
     }
 
     /// simple_command  : cmd_prefix cmd_name cmd_suffix
@@ -192,13 +192,13 @@ pub const Parser = struct {
     ///                 | cmd_prefix
     ///                 | cmd_name cmd_suffix
     ///                 | cmd_name
-    fn simpleCommand(parser: *Parser) errors!*Command.SimpleCommand {
-        var cmd: Command.SimpleCommand = undefined;
+    fn simpleCommand(parser: *Parser) errors!*ast.SimpleCommand {
+        var cmd: ast.SimpleCommand = undefined;
         try parser.cmdPrefix(&cmd);
         cmd.name = try parser.cmdName();
         if (!cmd.isEmpty()) {
             try parser.cmdArgs(&cmd);
-            return try Command.SimpleCommand.create(parser.allocator, cmd);
+            return try ast.SimpleCommand.create(parser.allocator, cmd);
         }
 
         return error.ExpectedCommand;
@@ -208,12 +208,10 @@ pub const Parser = struct {
     ///             | cmd_prefix io_redirect
     ///             | ASSIGNMENT_WORD
     ///             | cmd_prefix ASSIGNMENT_WORD
-    fn cmdPrefix(parser: *Parser, cmd: *Command.SimpleCommand) errors!void {
-        // TODO maybe function created at comptime that generates the code
-        // current implementation is wrong, it currently allocates a
-        var io_redir_array = std.ArrayList(*IORedir).init(parser.allocator);
+    fn cmdPrefix(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
+        var io_redir_array = std.ArrayList(IORedir).init(parser.allocator);
         defer io_redir_array.deinit();
-        var assigns_array = std.ArrayList(*Assign).init(parser.allocator);
+        var assigns_array = std.ArrayList(Assign).init(parser.allocator);
         defer assigns_array.deinit();
 
         while (true) {
@@ -225,7 +223,6 @@ pub const Parser = struct {
                 break;
             }
         }
-
         // whenether it is going to be null or not is up to cmdArgs
         cmd.io_redirs = io_redir_array.toOwnedSlice();
 
@@ -235,12 +232,9 @@ pub const Parser = struct {
     }
 
     /// name  : NAME        * Apply rule 5 *
-    fn cmdName(parser: *Parser) errors!?*Word {
+    fn cmdName(parser: *Parser) errors!?Word {
         // TODO apply aliases
         // TODO apply keywords
-        // TODO maybe make a function create to all the nodes, then it should allocate and return the allocation
-        // the values would then be already initialized
-        // TODO fix it, make the above true
         return try parser.word(0);
     }
 
@@ -248,10 +242,10 @@ pub const Parser = struct {
     ///             | cmd_suffix io_redirect
     ///             | WORD
     ///             | cmd_suffix WORD
-    fn cmdArgs(parser: *Parser, cmd: *Command.SimpleCommand) errors!void {
-        var word_array = std.ArrayList(*Word).init(parser.allocator);
+    fn cmdArgs(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
+        var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
-        var io_redir_array = std.ArrayList(*IORedir).fromOwnedSlice(parser.allocator, cmd.io_redirs.?);
+        var io_redir_array = std.ArrayList(IORedir).fromOwnedSlice(parser.allocator, cmd.io_redirs.?);
         defer io_redir_array.deinit();
 
         while (true) {
@@ -275,7 +269,7 @@ pub const Parser = struct {
     }
 
     /// ASSIGNMENT_WORD
-    fn assignmentWord(parser: *Parser) errors!?*Assign {
+    fn assignmentWord(parser: *Parser) errors!?Assign {
         if (parser.isCurrentSymbol(.TOKEN)) {
             const name_size = parser.peekNameSize();
             if (parser.peek(name_size + 1)) |str| {
@@ -286,7 +280,7 @@ pub const Parser = struct {
                         _ = parser.readChar();
 
                         const word_value = try parser.word(0);
-                        return try Assign.create(parser.allocator, .{ .name = name, .value = word_value, .name_range = name_range, .equal_pos = equal_pos });
+                        return Assign{ .name = name, .value = word_value, .name_range = name_range, .equal_pos = equal_pos };
                     }
                 }
             }
@@ -298,7 +292,7 @@ pub const Parser = struct {
     ///              | IO_NUMBER io_file
     ///              | io_here
     ///              | IO_NUMBER io_here
-    fn IORedirect(parser: *Parser) errors!?*IORedir {
+    fn IORedirect(parser: *Parser) errors!?IORedir {
         if (try parser.IORedirFile()) |io_file| {
             return io_file;
         } else if (try parser.IORedirHere()) |io_here_doc| {
@@ -330,7 +324,7 @@ pub const Parser = struct {
     ///          | DGREAT    filename
     ///          | LESSGREAT filename
     ///          | CLOBBER   filename
-    fn IORedirFile(parser: *Parser) errors!?*IORedir {
+    fn IORedirFile(parser: *Parser) errors!?IORedir {
         var io_num_pos: ?Position = parser.currentPos;
         const io_number = parser.IORedirNumber();
         if (io_number == null) io_num_pos = null;
@@ -338,7 +332,7 @@ pub const Parser = struct {
         var range: Range = undefined;
         if (parser.IORedirOp(&range)) |op| {
             if (try parser.IORedirFilename()) |filename| {
-                return try IORedir.create(parser.allocator, .{ .io_num = io_number, .io_num_pos = io_num_pos, .name = filename, .op_range = range, .op = op });
+                return IORedir{ .io_num = io_number, .io_num_pos = io_num_pos, .name = filename, .op_range = range, .op = op };
             }
         }
 
@@ -346,7 +340,7 @@ pub const Parser = struct {
     }
 
     /// filename  : WORD         * Apply rule 2 *
-    fn IORedirFilename(parser: *Parser) !?*Word {
+    fn IORedirFilename(parser: *Parser) !?Word {
         return try parser.word(0); // TODO improve it, making use of rule 2 of grammar
     }
 
@@ -354,7 +348,7 @@ pub const Parser = struct {
     ///          | DLESSDASH here_end
     ///
     /// here_end  : WORD            * Apply rule 3 *
-    fn IORedirHere(parser: *Parser) errors!?*IORedir {
+    fn IORedirHere(parser: *Parser) errors!?IORedir {
         _ = parser; // TODO
         return null;
     }
@@ -381,7 +375,7 @@ pub const Parser = struct {
     }
 
     /// cmd_word  : WORD                   * Apply rule 7b *
-    fn word(parser: *Parser, endChar: u8) errors!?*Word {
+    fn word(parser: *Parser, endChar: u8) errors!?Word {
         if (!parser.isCurrentSymbol(.TOKEN)) {
             return null;
         }
@@ -390,7 +384,7 @@ pub const Parser = struct {
             return null;
         }
 
-        var word_array = std.ArrayList(*Word).init(parser.allocator);
+        var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
 
         // TODO improve logic
@@ -399,7 +393,7 @@ pub const Parser = struct {
             const currentChar = strPeek[n];
             if (currentChar == endChar) break;
 
-            const word_value: ?*Word = switch (currentChar) {
+            const word_value: ?Word = switch (currentChar) {
                 '\n', ')' => break,
                 '$' => try parser.wordDollar(),
                 '`' => try parser.wordBackQuotes(),
@@ -426,7 +420,7 @@ pub const Parser = struct {
 
         var range: Range = undefined;
         if (parser.readToken(n, &range)) |str| {
-            try word_array.append(try Word.WordString.create(parser.allocator, .{ .str = str, .range = range }));
+            try word_array.append(try ast.WordString.create(parser.allocator, .{ .str = str, .range = range }));
         }
 
         if (word_array.items.len == 0) {
@@ -434,17 +428,17 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
+            return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
         }
     }
 
-    fn wordArithmetic(parser: *Parser) !?*Word {
+    fn wordArithmetic(parser: *Parser) !?Word {
         _ = parser;
         unreachable;
     }
 
     /// Creates a word command determined by back quotes
-    fn wordBackQuotes(parser: *Parser) !?*Word {
+    fn wordBackQuotes(parser: *Parser) !?Word {
         // TODO consider making this a generic function, to not repeat code
         // TODO check behavior when unclosed back quotes
         std.debug.assert(parser.readChar().? == '`');
@@ -456,14 +450,14 @@ pub const Parser = struct {
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
-            return try Word.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = true, .range = range });
+            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = true, .range = range });
         }
         // TODO treat better the parsing error
         std.debug.print("back quotes not terminated\n", .{});
         return null;
     }
 
-    fn wordCommand(parser: *Parser) !?*Word {
+    fn wordCommand(parser: *Parser) !?Word {
         std.debug.assert(parser.readChar().? == '(');
 
         const word_size = parser.peekWordSizeUntil(')');
@@ -473,13 +467,13 @@ pub const Parser = struct {
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
-            return try Word.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = false, .range = range });
+            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = false, .range = range });
         }
 
         return null;
     }
 
-    fn wordDollar(parser: *Parser) !?*Word {
+    fn wordDollar(parser: *Parser) !?Word {
         std.debug.assert(parser.readChar().? == '$');
 
         if (parser.peekChar()) |currentChar| {
@@ -512,7 +506,7 @@ pub const Parser = struct {
 
             // TODO range
             if (parser.readToken(name_size, null)) |name| {
-                return try Word.WordParameter.create(parser.allocator, .{ .name = name });
+                return try ast.WordParameter.create(parser.allocator, .{ .name = name });
             }
         }
 
@@ -520,14 +514,14 @@ pub const Parser = struct {
         return null;
     }
 
-    fn wordDoubleQuotes(parser: *Parser) !?*Word {
+    fn wordDoubleQuotes(parser: *Parser) !?Word {
         const lquote_pos = parser.currentPos;
         std.debug.assert(parser.readChar().? == '"');
 
-        var word_array = std.ArrayList(*Word).init(parser.allocator);
+        var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
         while (parser.peekChar()) |currentChar| {
-            const word_value: ?*Word = switch (currentChar) {
+            const word_value: ?Word = switch (currentChar) {
                 '"' => break,
                 '`' => try parser.wordBackQuotes(),
                 '$' => try parser.wordDollar(),
@@ -556,7 +550,7 @@ pub const Parser = struct {
                 }
                 const begin = parser.currentPos;
                 if (parser.read(n)) |str| { // TODO consider re-usage of wordString
-                    const word_string = try Word.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } });
+                    const word_string = try ast.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } });
                     try word_array.append(word_string);
                 }
             }
@@ -564,11 +558,11 @@ pub const Parser = struct {
 
         std.debug.assert(parser.readChar().? == '"');
 
-        return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true, .left_quote_pos = lquote_pos, .right_quote_pos = parser.currentPos });
+        return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true, .left_quote_pos = lquote_pos, .right_quote_pos = parser.currentPos });
     }
 
-    fn wordList(parser: *Parser, word_function: fn (*Parser, u8) errors!?*Word, endChar: u8) !?*Word {
-        var word_array = std.ArrayList(*Word).init(parser.allocator);
+    fn wordList(parser: *Parser, word_function: fn (*Parser, u8) errors!?Word, endChar: u8) !?Word {
+        var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
 
         while (parser.peekChar()) |currentChar| {
@@ -591,7 +585,7 @@ pub const Parser = struct {
             if (n > 0) {
                 const begin = parser.currentPos;
                 const str = parser.read(n).?;
-                try word_array.append(try Word.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } }));
+                try word_array.append(try ast.WordString.create(parser.allocator, .{ .str = str, .range = .{ .begin = begin, .end = parser.currentPos } }));
             } else {
                 break;
             }
@@ -602,13 +596,13 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return try Word.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
+            return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
         }
     }
 
-    const ParameterOp = Word.WordParameter.ParameterOperation;
+    const ParameterOp = ast.WordParameter.ParameterOperation;
 
-    fn wordParameterExpression(parser: *Parser) !?*Word {
+    fn wordParameterExpression(parser: *Parser) !?Word {
         std.debug.assert(parser.readChar().? == '{');
 
         var param_op: ParameterOp = ParameterOp.PARAMETER_NO_OP;
@@ -624,7 +618,7 @@ pub const Parser = struct {
         }
         const name = parser.readToken(name_size, null).?;
         var has_colon = false;
-        var arg: ?*Word = null;
+        var arg: ?Word = null;
         // TODO consider if reached the end of the stream
         if (param_op == .PARAMETER_NO_OP and parser.peekChar().? != '}') {
             var ch = parser.readChar().?;
@@ -664,10 +658,10 @@ pub const Parser = struct {
 
         std.debug.assert(parser.readChar().? == '}');
 
-        return try Word.WordParameter.create(parser.allocator, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon });
+        return try ast.WordParameter.create(parser.allocator, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon });
     }
 
-    fn wordSingleQuotes(parser: *Parser) !?*Word {
+    fn wordSingleQuotes(parser: *Parser) !?Word {
         std.debug.assert(parser.readChar().? == '\'');
 
         const word_size = parser.peekWordSizeUntil('\'');
@@ -675,18 +669,18 @@ pub const Parser = struct {
         if (parser.readToken(word_size, &range)) |str| {
             std.debug.assert(parser.readChar().? == '\'');
 
-            return try Word.WordString.create(parser.allocator, .{ .str = str, .is_single_quoted = true, .range = range });
+            return try ast.WordString.create(parser.allocator, .{ .str = str, .is_single_quoted = true, .range = range });
         }
         // TODO error or read new line
 
         return null;
     }
 
-    fn wordString(parser: *Parser) !?*Word {
+    fn wordString(parser: *Parser) !?Word {
         const len = parser.peekWordSize();
         var word_range: Range = undefined;
         if (parser.readToken(len, &word_range)) |str| {
-            return try Word.WordString.create(parser.allocator, .{ .str = str, .range = word_range });
+            return try ast.WordString.create(parser.allocator, .{ .str = str, .range = word_range });
         }
         return null;
     }
@@ -984,7 +978,7 @@ test "Parse Command List Separator" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     const cmd_array = program.body;
     try testing.expect(cmd_array.len == 3);
@@ -1008,7 +1002,7 @@ test "Parse And Or Cmd List" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     try testing.expect(program.body.len == 1);
 
@@ -1034,7 +1028,7 @@ test "Parse Pipeline" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 3);
@@ -1063,7 +1057,7 @@ test "Parse Simple Command" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 1);
@@ -1087,7 +1081,7 @@ test "Parse Simple Command with IO redirection" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print();
+    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1117,7 +1111,7 @@ test "Parse Simple Command Assignments" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print();
+    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1138,7 +1132,7 @@ test "Parse Simple Command Assignments" {
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
     defer program2.deinit(testing.allocator);
-    // program2.print();
+    // program2.print(1);
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name == null);
@@ -1162,7 +1156,7 @@ test "Parse Word Command" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print();
+    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1195,7 +1189,7 @@ test "Parse Word Command" {
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
     defer program2.deinit(testing.allocator);
-    // program2.print();
+    // program2.print(1);
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name != null);
@@ -1221,7 +1215,7 @@ test "Parse Word Parameter" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);
@@ -1230,7 +1224,7 @@ test "Parse Word Parameter" {
     try testing.expect(args.len == 10);
 
     const parameter_names = [_][]const u8{ "HOME", "NOTHOME", "VAR", "VAR", "NOTHOME", "HOME", "SOMESCRIPT1", "SOMESCRIPT22", "SOMESCRIPT333", "S0MESCRIPT4" };
-    var param_array: [10]*Word.WordParameter = undefined;
+    var param_array: [10]*ast.WordParameter = undefined;
     for (args) |arg, index| {
         try testing.expect(arg.kind == .PARAMETER);
         const param = arg.cast(.PARAMETER).?;
@@ -1284,7 +1278,7 @@ test "Parse Word Quotes and backslash" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print();
+    // program.print(1);
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);

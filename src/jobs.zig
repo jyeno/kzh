@@ -1,8 +1,7 @@
 const std = @import("std");
 const os = std.os;
 const ast = @import("ast.zig");
-const Node = ast.Node;
-const Command = Node.Command;
+const Command = ast.Command;
 const builtins = @import("builtins.zig").builtins;
 const executor = @import("exec.zig");
 const symtab = @import("symtab.zig");
@@ -30,13 +29,13 @@ pub const JobController = struct {
         self.jobs.deinit(self.allocator);
     }
 
-    pub fn run(self: *JobController, program: *Node.Program) !void {
+    pub fn run(self: *JobController, program: *ast.Program) !void {
         for (program.body) |cmd_list| {
             try self.runAndOrCmd(cmd_list.and_or_cmd_list);
         }
     }
 
-    fn runAndOrCmd(self: *JobController, and_or_cmd: *Node.AndOrCmdList) anyerror!void {
+    fn runAndOrCmd(self: *JobController, and_or_cmd: ast.AndOrCmdList) anyerror!void {
         switch (and_or_cmd.kind) {
             .PIPELINE => try self.runPipeline(and_or_cmd.cast(.PIPELINE).?),
             .BINARY_OP => {
@@ -51,7 +50,7 @@ pub const JobController = struct {
         }
     }
 
-    fn runPipeline(self: *JobController, pipeline: *Node.AndOrCmdList.Pipeline) !void {
+    fn runPipeline(self: *JobController, pipeline: *ast.Pipeline) !void {
         if (pipeline.commands.len == 1) {
             try self.runCommand(pipeline.commands[0]);
         } else {
@@ -67,20 +66,22 @@ pub const JobController = struct {
         }
     }
 
-    fn runCommand(self: *JobController, cmd: *Command) !void {
+    // TODO consider merging of jobs.zig and exec.zig
+    fn runCommand(self: *JobController, cmd: Command) !void {
+        // maybe a run function at the command interface?
         switch (cmd.kind) {
             .SIMPLE_COMMAND => self.last_status = try exec.simpleCommand(cmd.cast(.SIMPLE_COMMAND).?),
         }
     }
 
-    fn createJob(self: *JobController, and_or_cmd: *Node.AndOrCmdList) !void {
+    fn createJob(self: *JobController, and_or_cmd: *ast.AndOrCmdList) !void {
         try self.jobs.append(self.allocator, .{ .controller = self, .and_or_cmd = and_or_cmd });
     }
 };
 
 const Job = struct {
     controller: *JobController,
-    and_or_cmd: *Node.AndOrCmdList,
+    and_or_cmd: ast.AndOrCmdList,
     is_async: bool = true,
     status: u8 = 0, // TODO see correct status, maybe signal?
     pid: os.pid_t = undefined,

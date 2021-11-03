@@ -20,8 +20,6 @@ parser:
 
 AST:
 
-* remove parentFieldPtr, use new interface type, should be simpler, https://zig.news/david_vanderson/faster-interface-style-2b12
-* better printer
 * analyze if positions should be used
 * command types
 

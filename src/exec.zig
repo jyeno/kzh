@@ -3,10 +3,9 @@ const os = std.os;
 const builtins = @import("builtins.zig").builtins;
 const symtab = @import("symtab.zig");
 const ast = @import("ast.zig");
-const Node = ast.Node;
-const AndOrCmdList = Node.AndOrCmdList;
+const AndOrCmdList = ast.AndOrCmdList;
 const AndOrCmdListKind = AndOrCmdList.AndOrCmdListKind;
-const Command = Node.Command;
+const Command = ast.Command;
 const Word = ast.Word;
 const Position = ast.Position;
 const Range = ast.Range;
@@ -15,7 +14,7 @@ const printError = std.debug.print;
 
 const BoundedArray = std.BoundedArray([]const u8, 60);
 
-pub fn simpleCommand(simple_command: *Command.SimpleCommand) !u8 {
+pub fn simpleCommand(simple_command: *ast.SimpleCommand) !u8 {
     if (simple_command.name) |word_name| {
         var argv: BoundedArray = undefined;
         if (simple_command.args) |args| {
@@ -34,7 +33,7 @@ pub fn simpleCommand(simple_command: *Command.SimpleCommand) !u8 {
     unreachable;
 }
 
-fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
+fn runProcess(argv: [][]const u8, io_redirs: ?[]IORedir) !u8 {
     if (builtins.get(argv[0])) |builtin| {
         // TODO support redir on builtins
         return builtin(argv);
@@ -113,7 +112,7 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]*IORedir) !u8 {
     return 1;
 }
 
-fn processRedirection(io_redir: *IORedir, source_fd: *os.fd_t) !os.fd_t {
+fn processRedirection(io_redir: IORedir, source_fd: *os.fd_t) !os.fd_t {
     const filename = io_redir.name.cast(.STRING).?.str; // support other word types
 
     var dest_fd: os.fd_t = switch (io_redir.op) {
