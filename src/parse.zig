@@ -179,14 +179,127 @@ pub const Parser = struct {
     }
 
     /// command  : simple_command
-    ///          | compound_command TODO
+    ///          | compound_command
     ///          | compound_command redirect_list TODO
-    ///          | function_definition TODO
+    ///          | function_definition
     fn command(parser: *Parser) errors!Command {
-        if (try parser.simpleCommand()) |simple_cmd| {
+        if (try parser.compoundCommand()) |cmd| {
+            return cmd;
+        } else if (try parser.funcDeclaration()) |func| {
+            return func;
+        } else if (try parser.simpleCommand()) |simple_cmd| {
             return simple_cmd;
+        } else {
+            return error.ExpectedCommand;
         }
-        return error.ExpectedCommand;
+    }
+
+    /// function_definition  : fname '(' ')' linebreak function_body
+    /// function_body        : compound_command                /* Apply rule 9 */
+    ///                      | compound_command redirect_list  /* Apply rule 9 */
+    /// fname                : NAME                            /* Apply rule 8 */
+    fn funcDeclaration(parser: *Parser) errors!?Command {
+        // TODO support "function"
+        _ = parser;
+        return null;
+    }
+
+    /// compound_command  : brace_group
+    ///                   | subshell
+    ///                   | for_clause
+    ///                   | case_clause
+    ///                   | if_clause
+    ///                   | while_clause
+    ///                   | until_clause
+    fn compoundCommand(parser: *Parser) errors!?Command {
+        if (try parser.braceGroup()) |brace_cmd| {
+            return brace_cmd;
+        } else if (try parser.subshell()) |sub_shell| {
+            return sub_shell;
+        } else if (try parser.forDeclaration()) |for_decl| {
+            return for_decl;
+        } else if (try parser.caseDeclaration()) |case_decl| {
+            return case_decl;
+        } else if (try parser.ifDeclaration()) |if_decl| {
+            return if_decl;
+        } else if (try parser.loopDeclaration()) |loop_decl| {
+            return loop_decl;
+        } else {
+            return null;
+        }
+    }
+
+    /// brace_group  : Lbrace compound_list Rbrace
+    fn braceGroup(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+        //
+    }
+
+    /// compound_list  : linebreak term
+    ///                | linebreak term separator
+    /// term  : term separator and_or
+    ///       | and_or
+    fn compoundList(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+    }
+
+    /// subshell  : '(' compound_list ')'
+    fn subshell(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+    }
+
+    /// for_clause  : For name do_group
+    ///             | For name sequential_sep do_group
+    ///             | For name linebreak in          sequential_sep do_group
+    ///             | For name linebreak in wordlist sequential_sep do_group
+    /// in          : In   /* Apply rule 6 */
+    /// do_group : Do compound_list Done   /* Apply rule 6 */
+    ///
+    fn forDeclaration(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+    }
+
+    /// case_clause   : Case WORD linebreak in linebreak case_list    Esac
+    ///               | Case WORD linebreak in linebreak case_list_ns Esac
+    ///               | Case WORD linebreak in linebreak              Esac
+    /// case_list_ns  : case_list case_item_ns
+    ///               |           case_item_ns
+    /// case_list     : case_list case_item
+    ///               | case_item
+    /// case_item_ns  : pattern ')' linebreak
+    ///               | pattern ')' compound_list
+    ///               | '(' pattern ')' linebreak
+    ///               | '(' pattern ')' compound_list
+    /// case_item     : pattern ')' linebreak     DSEMI linebreak
+    ///               | pattern ')' compound_list DSEMI linebreak
+    ///               | '(' pattern ')' linebreak     DSEMI linebreak
+    ///               | '(' pattern ')' compound_list DSEMI linebreak
+    /// pattern       : WORD             /* Apply rule 4 */
+    ///               | pattern '|' WORD /* Do not apply rule 4 */
+    fn caseDeclaration(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+    }
+
+    /// if_clause  : If compound_list Then compound_list else_part Fi
+    ///            | If compound_list Then compound_list           Fi
+    /// else_part  : Elif compound_list Then compound_list
+    ///            | Elif compound_list Then compound_list else_part
+    ///            | Else compound_list
+    fn ifDeclaration(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
+    }
+
+    /// while_clause  : While compound_list do_group
+    /// until_clause  : Until compound_list do_group
+    fn loopDeclaration(parser: *Parser) errors!?Command {
+        _ = parser;
+        return null;
     }
 
     /// simple_command  : cmd_prefix cmd_name cmd_suffix
