@@ -137,10 +137,10 @@ pub const Pipeline = struct {
     }
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, pipeline: Pipeline) !*Pipeline {
+    pub fn create(allocator: *std.mem.Allocator, pipeline: Pipeline) !AndOrCmdList {
         const node_pipeline = try allocator.create(Pipeline);
         node_pipeline.* = pipeline;
-        return node_pipeline;
+        return node_pipeline.andOrCmd();
     }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
@@ -186,11 +186,10 @@ pub const BinaryOp = struct {
     }
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, binary_op: BinaryOp) !*BinaryOp {
+    pub fn create(allocator: *std.mem.Allocator, binary_op: BinaryOp) !AndOrCmdList {
         const binary_operation = try allocator.create(BinaryOp);
         binary_operation.* = binary_op;
-        // maybe andOrCmdList ?
-        return binary_operation;
+        return binary_operation.andOrCmd();
     }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
@@ -265,10 +264,10 @@ pub const SimpleCommand = struct {
     }
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, simple_command: SimpleCommand) !*SimpleCommand {
+    pub fn create(allocator: *std.mem.Allocator, simple_command: SimpleCommand) !Command {
         const simple_cmd = try allocator.create(SimpleCommand);
         simple_cmd.* = simple_command;
-        return simple_cmd;
+        return simple_cmd.cmd();
     }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one

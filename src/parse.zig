@@ -135,23 +135,23 @@ pub const Parser = struct {
         } else if (parser.isOperator(.OR, &op_range)) {
             bin_op_kind = ast.BinaryOp.BinaryOpKind.OR;
         } else {
-            return pl.andOrCmd();
+            return pl;
         }
 
         // TODO error if and_or_right command is invalid
         // maybe create here should just return the andOrCmd()
         const and_or_right = try parser.andOrCmdList();
 
-        const and_or_left = try ast.BinaryOp.create(parser.allocator, .{ .left = pl.andOrCmd(), .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
+        const and_or_left = try ast.BinaryOp.create(parser.allocator, .{ .left = pl, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
 
-        return and_or_left.andOrCmd();
+        return and_or_left;
     }
 
     /// pipeline  : pipe_sequence
     ///           | Bang pipe_sequence
     /// pipe_sequence  : command
     ///                | pipe_sequence '|' linebreak command TODO linebreak
-    fn pipeline(parser: *Parser) errors!*ast.Pipeline {
+    fn pipeline(parser: *Parser) errors!AndOrCmdList {
         var command_array = std.ArrayList(ast.Command).init(parser.allocator);
         defer command_array.deinit();
 
@@ -183,8 +183,10 @@ pub const Parser = struct {
     ///          | compound_command redirect_list TODO
     ///          | function_definition TODO
     fn command(parser: *Parser) errors!Command {
-        const simple_command = try parser.simpleCommand();
-        return simple_command.cmd();
+        if (try parser.simpleCommand()) |simple_cmd| {
+            return simple_cmd;
+        }
+        return error.ExpectedCommand;
     }
 
     /// simple_command  : cmd_prefix cmd_name cmd_suffix
@@ -192,7 +194,7 @@ pub const Parser = struct {
     ///                 | cmd_prefix
     ///                 | cmd_name cmd_suffix
     ///                 | cmd_name
-    fn simpleCommand(parser: *Parser) errors!*ast.SimpleCommand {
+    fn simpleCommand(parser: *Parser) errors!?ast.Command {
         var cmd: ast.SimpleCommand = undefined;
         try parser.cmdPrefix(&cmd);
         cmd.name = try parser.cmdName();
@@ -200,8 +202,7 @@ pub const Parser = struct {
             try parser.cmdArgs(&cmd);
             return try ast.SimpleCommand.create(parser.allocator, cmd);
         }
-
-        return error.ExpectedCommand;
+        return null;
     }
 
     /// cmd_prefix  : io_redirect
