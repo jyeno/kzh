@@ -329,11 +329,44 @@ pub const Parser = struct {
 
     /// if_clause  : If compound_list Then compound_list else_part Fi
     ///            | If compound_list Then compound_list           Fi
+    fn ifDeclaration(parser: *Parser) errors!?Command {
+        if (!parser.consumeToken("if", null)) {
+            return null;
+        }
+        // TODO correctly treat errors, readlines if needed
+        if (try parser.compoundList()) |condition| {
+            // TODO consider if should consume ";" if any
+            if (parser.consumeToken("then", null)) {
+                if (try parser.compoundList()) |body| {
+                    const else_decl = try parser.elseDeclaration();
+                    if (parser.consumeToken("fi", null)) {
+                        return try ast.IfDecl.create(parser.allocator, .{ .condition = condition, .body = body, .else_decl = else_decl });
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /// else_part  : Elif compound_list Then compound_list
     ///            | Elif compound_list Then compound_list else_part
     ///            | Else compound_list
-    fn ifDeclaration(parser: *Parser) errors!?Command {
-        _ = parser;
+    fn elseDeclaration(parser: *Parser) errors!?Command {
+        // TODO have errors
+        if (parser.consumeToken("elif", null)) {
+            if (try parser.compoundList()) |condition| {
+                if (parser.consumeToken("then", null)) {
+                    if (try parser.compoundList()) |body| {
+                        const else_decl = try parser.elseDeclaration();
+                        return try ast.IfDecl.create(parser.allocator, .{ .condition = condition, .body = body, .else_decl = else_decl });
+                    }
+                }
+            }
+        } else if (parser.consumeToken("else", null)) {
+            if (try parser.compoundList()) |body| {
+                return try ast.CmdGroup.create(parser.allocator, .{ .body = body, .kind = .BRACE_GROUP });
+            }
+        }
         return null;
     }
 

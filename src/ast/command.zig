@@ -17,11 +17,13 @@ pub const Command = struct {
     pub const CommandKind = enum {
         SIMPLE_COMMAND,
         CMD_GROUP,
+        IF_DECL,
 
         pub fn Type(self: CommandKind) type {
             return switch (self) {
                 .SIMPLE_COMMAND => SimpleCommand,
                 .CMD_GROUP => CmdGroup,
+                .IF_DECL => IfDecl,
             };
         }
     };
@@ -165,6 +167,57 @@ pub const CmdGroup = struct {
         }
         std.debug.print(csi ++ "{}C", .{spacing});
         std.debug.print("end\n", .{});
+    }
+};
+
+pub const IfDecl = struct {
+    condition: []*CommandList,
+    body: []*CommandList,
+    else_decl: ?Command,
+
+    pub fn cmd(self: *IfDecl) Command {
+        return .{ .impl = self, .kind = .IF_DECL, .deinitFn = deinit, .printFn = print };
+    }
+
+    pub fn create(allocator: *mem.Allocator, ifdecl: IfDecl) !Command {
+        const if_decl = try allocator.create(IfDecl);
+        if_decl.* = ifdecl;
+        return if_decl.cmd();
+    }
+
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+        const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
+        for (self.condition) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.free(self.condition);
+        for (self.body) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.free(self.body);
+        if (self.else_decl) |else_part| else_part.deinit(allocator);
+        allocator.destroy(self);
+    }
+    pub fn print(self_void: *c_void, spacing: usize) void {
+        const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("if condition:\n", .{});
+        for (self.condition) |cond| {
+            cond.print(spacing + 5);
+        }
+        std.debug.print(csi ++ "{}C", .{spacing + 3});
+        std.debug.print("body:\n", .{});
+        for (self.body) |cmd_list| {
+            cmd_list.print(spacing + 5);
+        }
+        std.debug.print(csi ++ "{}C", .{spacing + 3});
+        std.debug.print("else ", .{});
+        if (self.else_decl) |else_part| {
+            std.debug.print("\n", .{});
+            else_part.print(spacing + 5);
+        } else {
+            std.debug.print("null\n", .{});
+        }
     }
 };
 
