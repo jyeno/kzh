@@ -106,13 +106,24 @@ pub const Parser = struct {
 
     /// separator_op  : '&'
     ///               | ';'
-    /// separator  : separator_op linebreak  TODO
-    ///            | newline_list
     fn separatorOperator(parser: *Parser) ?u8 {
         if (parser.consumeToken("&", null)) {
             return '&';
         } else if (parser.consumeToken(";", null)) {
             return ';';
+        }
+        return null;
+    }
+
+    /// separator  : separator_op linebreak
+    ///            | newline_list
+    fn separator(parser: *Parser) ?u8 {
+        if (parser.separatorOperator()) |sep| {
+            parser.linebreak();
+            return sep;
+        }
+        if (parser.consumeNewLine()) {
+            return '\n';
         }
         return null;
     }
@@ -529,8 +540,11 @@ pub const Parser = struct {
         if (!parser.isCurrentSymbol(.TOKEN)) {
             return null;
         }
-        const initialChar = parser.peekChar().?;
-        if (isOperatorStart(initialChar) or initialChar == ')' or initialChar == endChar) {
+        if (parser.peekChar()) |initialChar| {
+            if (isOperatorStart(initialChar) or initialChar == ')' or initialChar == endChar) {
+                return null;
+            }
+        } else {
             return null;
         }
 
