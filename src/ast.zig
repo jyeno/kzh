@@ -3,7 +3,9 @@
 const std = @import("std");
 const mem = std.mem;
 const word = @import("ast/word.zig");
+const command = @import("ast/command.zig");
 pub usingnamespace word;
+pub usingnamespace command;
 
 // consider usage of this
 // use buffered writer
@@ -26,10 +28,11 @@ pub const Range = struct {
 /// Representation of a 'program'
 /// It has a body that contains one or more `CommandList`s.
 pub const Program = struct {
+    // TODO make this not a array of pointers
     body: []*CommandList,
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, program: Program) !*Program {
+    pub fn create(allocator: *mem.Allocator, program: Program) !*Program {
         const prog = try allocator.create(Program);
         prog.* = program;
         return prog;
@@ -37,7 +40,7 @@ pub const Program = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self: *Program, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self: *Program, allocator: *mem.Allocator) void {
         for (self.body) |command_list| {
             command_list.deinit(allocator);
         }
@@ -63,7 +66,7 @@ pub const CommandList = struct {
     separator_pos: ?Position = null,
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, command_list: CommandList) !*CommandList {
+    pub fn create(allocator: *mem.Allocator, command_list: CommandList) !*CommandList {
         const cmd_list = try allocator.create(CommandList);
         cmd_list.* = command_list;
         return cmd_list;
@@ -71,7 +74,7 @@ pub const CommandList = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self: *CommandList, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self: *CommandList, allocator: *mem.Allocator) void {
         self.and_or_cmd_list.deinit(allocator);
         allocator.destroy(self);
     }
@@ -116,7 +119,7 @@ pub const AndOrCmdList = struct {
     }
 
     /// Calls the correct deinitializer of the `AndOrCmdList` type
-    pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: *std.mem.Allocator) void {
+    pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: *mem.Allocator) void {
         and_or_cmd.deinitFn(and_or_cmd.impl, allocator);
     }
 
@@ -128,7 +131,7 @@ pub const AndOrCmdList = struct {
 
 /// Pipeline representation
 pub const Pipeline = struct {
-    commands: []Command,
+    commands: []command.Command,
     has_bang: bool,
     bang_pos: ?Position,
 
@@ -137,7 +140,7 @@ pub const Pipeline = struct {
     }
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, pipeline: Pipeline) !AndOrCmdList {
+    pub fn create(allocator: *mem.Allocator, pipeline: Pipeline) !AndOrCmdList {
         const node_pipeline = try allocator.create(Pipeline);
         node_pipeline.* = pipeline;
         return node_pipeline.andOrCmd();
@@ -145,7 +148,7 @@ pub const Pipeline = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*Pipeline, @alignCast(@alignOf(Pipeline), self_void));
         for (self.commands) |cmd| {
             cmd.deinit(allocator);
@@ -186,7 +189,7 @@ pub const BinaryOp = struct {
     }
 
     /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, binary_op: BinaryOp) !AndOrCmdList {
+    pub fn create(allocator: *mem.Allocator, binary_op: BinaryOp) !AndOrCmdList {
         const binary_operation = try allocator.create(BinaryOp);
         binary_operation.* = binary_op;
         return binary_operation.andOrCmd();
@@ -194,7 +197,7 @@ pub const BinaryOp = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
         self.left.deinit(allocator);
         self.right.deinit(allocator);
@@ -206,189 +209,5 @@ pub const BinaryOp = struct {
         const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
         std.debug.print("binary_op ({}) {} left: {} right: {}\n", .{ self.op_range, self.kind, self.left, self.right });
-    }
-};
-
-/// Command representation
-pub const Command = struct {
-    impl: *c_void,
-    kind: CommandKind,
-    deinitFn: fn (*c_void, *mem.Allocator) void,
-    printFn: fn (*c_void, usize) void,
-
-    /// Command type representation
-    pub const CommandKind = enum {
-        SIMPLE_COMMAND,
-        // BRACE_GROUP,
-        // SUBSHELL,
-        // IF_CLAUSE,
-        // FOR_CLAUSE,
-        // LOOP_CLAUSE,
-        // CASE_CLAUSE,
-        // FUNCTION_DEF,
-
-        pub fn Type(self: CommandKind) type {
-            return switch (self) {
-                .SIMPLE_COMMAND => SimpleCommand,
-            };
-        }
-    };
-
-    pub fn cast(cmd: *const Command, comptime cmd_kind: CommandKind) ?*cmd_kind.Type() {
-        if (cmd.kind == cmd_kind) {
-            return @ptrCast(*cmd_kind.Type(), @alignCast(@alignOf(cmd_kind.Type()), cmd.impl));
-        } else {
-            return null;
-        }
-    }
-
-    pub fn deinit(cmd: *const Command, allocator: *std.mem.Allocator) void {
-        cmd.deinitFn(cmd.impl, allocator);
-    }
-
-    pub fn print(cmd: *const Command, spacing: usize) void {
-        cmd.printFn(cmd.impl, spacing);
-    }
-};
-
-/// Simple Command representation
-pub const SimpleCommand = struct {
-    name: ?word.Word,
-    args: ?[]word.Word = null,
-    // maybe not allocate memory here
-    io_redirs: ?[]IORedir = null,
-    assigns: ?[]Assign = null,
-
-    pub fn cmd(self: *SimpleCommand) Command {
-        return .{ .impl = self, .kind = .SIMPLE_COMMAND, .deinitFn = deinit, .printFn = print };
-    }
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, simple_command: SimpleCommand) !Command {
-        const simple_cmd = try allocator.create(SimpleCommand);
-        simple_cmd.* = simple_command;
-        return simple_cmd.cmd();
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
-        const self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
-        if (self.name) |word_name| {
-            word_name.deinit(allocator);
-        }
-        if (self.args) |args| {
-            for (args) |arg| {
-                arg.deinit(allocator);
-            }
-            allocator.free(args);
-        }
-        if (self.assigns) |assignments| {
-            for (assignments) |assign| {
-                if (assign.value) |val| {
-                    val.deinit(allocator);
-                }
-            }
-            allocator.free(assignments);
-        }
-        if (self.io_redirs) |io_redirects| {
-            for (io_redirects) |io_redir| {
-                io_redir.name.deinit(allocator);
-            }
-            allocator.free(io_redirects);
-        }
-        allocator.destroy(self);
-    }
-
-    /// Prints the Simple Command representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("simple_command:\n", .{});
-        if (self.io_redirs) |io_redirects| {
-            for (io_redirects) |io_redir| {
-                std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("io_redir op: {} name: {s} io_num: {} op_range: {}\n", .{ io_redir.op, io_redir.name.cast(word.Word.WordKind.STRING).?.str, io_redir.io_num, io_redir.op_range });
-            }
-        }
-        if (self.assigns) |assignments| {
-            for (assignments) |assign| {
-                std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("assign name: {s} ({})  value:\n", .{ assign.name, assign.name_range });
-                if (assign.value) |v| {
-                    v.print(spacing + 4);
-                } else {
-                    std.debug.print("\"\"", .{});
-                }
-            }
-        }
-        if (self.name) |word_name| {
-            word_name.print(spacing + 2);
-        }
-        if (self.args) |args| {
-            for (args) |arg| {
-                arg.print(spacing + 2);
-            }
-        }
-    }
-
-    /// Checks whenether the simple command is empty, returns true if it
-    /// has no `name`, `io_redirs` and `assigns`, retuns false otherwise
-    pub fn isEmpty(self: *SimpleCommand) bool {
-        return self.name == null and self.io_redirs == null and self.assigns == null;
-    }
-};
-
-/// Input/Output Redirection representation
-pub const IORedir = struct {
-    io_num: ?u8 = null,
-    name: word.Word,
-    here_doc: ?[]word.Word = null,
-    io_num_pos: ?Position = null,
-    op_range: Range,
-    op: IORedirKind,
-
-    /// Input/Output type representation
-    pub const IORedirKind = enum {
-        /// <
-        IO_LESS,
-        /// <<
-        IO_DOUBLE_LESS,
-        /// <&
-        IO_LESS_AND,
-        /// <<-
-        IO_DOUBLE_LESS_DASH,
-        /// <>
-        IO_LESS_GREAT,
-        /// >
-        IO_GREAT,
-        /// >>
-        IO_DOUBLE_GREAT,
-        /// >&
-        IO_GREAT_AND,
-        /// >|
-        IO_CLOBBER,
-    };
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, io_redir: IORedir) !*IORedir {
-        const io_redirection = try allocator.create(IORedir);
-        io_redirection.* = io_redir;
-        return io_redirection;
-    }
-};
-
-/// Assignment representation, name=value
-pub const Assign = struct {
-    name: []const u8,
-    value: ?word.Word,
-    name_range: Range,
-    equal_pos: Position,
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, assign: Assign) !*Assign {
-        const assignment = try allocator.create(Assign);
-        assignment.* = assign;
-        return assignment;
     }
 };
