@@ -1,8 +1,6 @@
 const std = @import("std");
 const ast = @import("../ast.zig");
 const Program = ast.Program;
-const Range = ast.Range;
-const Position = ast.Position;
 
 const esc = "\x1B";
 const csi = esc ++ "[";
@@ -56,8 +54,6 @@ pub const WordString = struct {
     str: []const u8,
     /// used to determine if the string should be expanded or not
     is_single_quoted: bool = false,
-    /// Position of the string
-    range: ?Range = null,
 
     pub fn word(self: *WordString) Word {
         return .{ .impl = self, .kind = .STRING, .deinitFn = deinit, .printFn = print };
@@ -81,7 +77,7 @@ pub const WordString = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         var self = @ptrCast(*WordString, @alignCast(@alignOf(WordString), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_string {s}  is_single_quoted ({}) range ({})\n", .{ self.str, self.is_single_quoted, self.range });
+        std.debug.print("word_string {s}  is_single_quoted ({})\n", .{ self.str, self.is_single_quoted });
     }
 };
 
@@ -95,7 +91,6 @@ pub const WordParameter = struct {
     has_colon: bool = false,
     /// Optional args that are used by some operations
     arg: ?Word = null,
-    // TODO add positions
 
     /// Representation of the parameters operations
     pub const ParameterOperation = enum {
@@ -159,7 +154,6 @@ pub const WordParameter = struct {
 pub const WordCommand = struct {
     program: ?*Program,
     is_back_quoted: bool,
-    range: Range,
 
     // TODO maybe,  word() ?
 
@@ -188,7 +182,7 @@ pub const WordCommand = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         var self = @ptrCast(*WordCommand, @alignCast(@alignOf(WordCommand), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_command ({}) is_back_quoted: {}\n", .{ self.range, self.is_back_quoted });
+        std.debug.print("word_command is_back_quoted: {}\n", .{self.is_back_quoted});
         if (self.program) |prog| {
             std.debug.print(csi ++ "{}C", .{spacing});
             prog.print(spacing + 2);
@@ -232,8 +226,6 @@ pub const WordArithm = struct {
 pub const WordList = struct {
     items: []Word,
     is_double_quoted: bool,
-    left_quote_pos: ?Position = null,
-    right_quote_pos: ?Position = null,
 
     pub fn word(self: *WordList) Word {
         return .{ .impl = self, .kind = .LIST, .deinitFn = deinit, .printFn = print };
@@ -261,7 +253,7 @@ pub const WordList = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         var self = @ptrCast(*WordList, @alignCast(@alignOf(WordList), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_list ({}) is_double_quoted: {} left_quote ({}) right_quote ({}):\n", .{ self.items.len, self.is_double_quoted, self.left_quote_pos, self.right_quote_pos });
+        std.debug.print("word_list ({}) is_double_quoted: {}:\n", .{ self.items.len, self.is_double_quoted });
         for (self.items) |item| {
             item.print(spacing + 2);
         }

@@ -106,14 +106,14 @@ pub const SimpleCommand = struct {
         if (self.io_redirs) |io_redirects| {
             for (io_redirects) |io_redir| {
                 std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("io_redir op: {} name: {s} io_num: {} op_range: {}\n", .{ io_redir.op, io_redir.name.cast(Word.WordKind.STRING).?.str, io_redir.io_num, io_redir.op_range });
+                std.debug.print("io_redir op: {} name: {s} io_num: {}\n", .{ io_redir.op, io_redir.name.cast(Word.WordKind.STRING).?.str, io_redir.io_num });
                 // TODO fix this
             }
         }
         if (self.assigns) |assignments| {
             for (assignments) |assign| {
                 std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("assign name: {s} ({})  value:\n", .{ assign.name, assign.name_range });
+                std.debug.print("assign name: {s}  value:\n", .{assign.name});
                 if (assign.value) |v| {
                     v.print(spacing + 2);
                 } else {
@@ -370,8 +370,6 @@ pub const FuncDecl = struct {
 pub const Assign = struct {
     name: []const u8,
     value: ?Word,
-    name_range: ast.Range,
-    equal_pos: ast.Position,
 
     pub fn create(allocator: *mem.Allocator, assign: Assign) !*Assign {
         const assignment = try allocator.create(Assign);
@@ -385,8 +383,6 @@ pub const IORedir = struct {
     io_num: ?u8 = null,
     name: Word,
     here_doc: ?[]Word = null,
-    io_num_pos: ?ast.Position = null,
-    op_range: ast.Range,
     op: IORedirKind,
 
     /// Input/Output type representation

@@ -12,19 +12,6 @@ pub usingnamespace command;
 const esc = "\x1B";
 const csi = esc ++ "[";
 
-/// Representation of the position
-pub const Position = struct {
-    offset: u16 = 0,
-    line: u16 = 1,
-    column: u16 = 1,
-};
-
-/// Range of two positions
-pub const Range = struct {
-    begin: Position,
-    end: Position,
-};
-
 /// Representation of a 'program'
 /// It has a body that contains one or more `CommandList`s.
 pub const Program = struct {
@@ -63,7 +50,6 @@ pub const Program = struct {
 pub const CommandList = struct {
     and_or_cmd_list: AndOrCmdList,
     is_async: bool = false,
-    separator_pos: ?Position = null,
 
     /// Initializes the memory using given `allocator`
     pub fn create(allocator: *mem.Allocator, command_list: CommandList) !*CommandList {
@@ -82,7 +68,7 @@ pub const CommandList = struct {
     /// Prints the Command List representation
     pub fn print(self: *CommandList, spacing: usize) void {
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("cmd_list is_async ({}) separator_pos ({}):\n", .{ self.is_async, self.separator_pos });
+        std.debug.print("cmd_list is_async ({}):\n", .{self.is_async});
         self.and_or_cmd_list.print(spacing + 2);
     }
 };
@@ -133,7 +119,6 @@ pub const AndOrCmdList = struct {
 pub const Pipeline = struct {
     commands: []command.Command,
     has_bang: bool,
-    bang_pos: ?Position,
 
     pub fn andOrCmd(self: *Pipeline) AndOrCmdList {
         return .{ .impl = self, .kind = .PIPELINE, .deinitFn = deinit, .printFn = print };
@@ -161,20 +146,17 @@ pub const Pipeline = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*Pipeline, @alignCast(@alignOf(Pipeline), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("pipeline len ({}) has_bang ({}) bang_pos ({}):\n", .{ self.commands.len, self.has_bang, self.bang_pos });
+        std.debug.print("pipeline len ({}) has_bang ({}):\n", .{ self.commands.len, self.has_bang });
         for (self.commands) |cmd| {
             cmd.print(spacing + 2);
         }
     }
-
-    // TODO pipe positions between each command
 };
 
 /// Binary Operation representation
 pub const BinaryOp = struct {
     left: AndOrCmdList,
     right: AndOrCmdList,
-    op_range: Range,
     kind: BinaryOpKind,
 
     pub const BinaryOpKind = enum(u1) {
@@ -208,6 +190,6 @@ pub const BinaryOp = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("binary_op ({}) {} left: {} right: {}\n", .{ self.op_range, self.kind, self.left, self.right });
+        std.debug.print("binary_op {} left: {} right: {}\n", .{ self.kind, self.left, self.right });
     }
 };
