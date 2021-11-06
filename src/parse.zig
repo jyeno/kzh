@@ -76,8 +76,9 @@ pub const Parser = struct {
         var command_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
         defer command_list_array.deinit();
 
-        while (!parser.atEnd()) {
-            try command_list_array.append(try parser.commandList());
+        // TODO separator
+        while (try parser.commandList()) |cmd_list| {
+            try command_list_array.append(cmd_list);
         }
 
         return try ast.Program.create(parser.allocator, .{ .body = command_list_array.toOwnedSlice() });
@@ -85,21 +86,22 @@ pub const Parser = struct {
 
     /// list  : list separator_op and_or
     ///       | and_or
-    fn commandList(parser: *Parser) !*ast.CommandList {
-        const and_or_cmd_list = try parser.andOrCmdList();
+    fn commandList(parser: *Parser) !?*ast.CommandList {
+        // TODO fix behavior, improve logic
+        if (try parser.andOrCmdList()) |and_or_cmd_list| {
+            var command_list: ast.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
 
-        // TODO improve it
-        var command_list: ast.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
-
-        const separator_pos = parser.currentPos;
-        if (parser.separatorOperator()) |separator| {
-            if (separator == '&') {
-                command_list.is_async = true;
+            const separator_pos = parser.currentPos;
+            if (parser.separatorOperator()) |sep| {
+                if (sep == '&') {
+                    command_list.is_async = true;
+                }
+                command_list.separator_pos = separator_pos;
             }
-            command_list.separator_pos = separator_pos;
-        }
 
-        return try ast.CommandList.create(parser.allocator, command_list);
+            return try ast.CommandList.create(parser.allocator, command_list);
+        }
+        return null;
     }
 
     /// separator_op  : '&'
@@ -117,62 +119,61 @@ pub const Parser = struct {
 
     const errors = error{
         OutOfMemory,
-        ExpectedCommand,
     };
 
     /// and_or  : pipeline
     ///         | and_or AND_IF linebreak pipeline
     ///         | and_or OR_IF  linebreak pipeline
-    fn andOrCmdList(parser: *Parser) errors!AndOrCmdList {
-        const pl = try parser.pipeline();
-        // TODO error checking
-
-        var op_range: Range = undefined;
-
-        var bin_op_kind: ast.BinaryOp.BinaryOpKind = undefined;
-        if (parser.isOperator(.AND, &op_range)) {
-            bin_op_kind = ast.BinaryOp.BinaryOpKind.AND;
-        } else if (parser.isOperator(.OR, &op_range)) {
-            bin_op_kind = ast.BinaryOp.BinaryOpKind.OR;
+    fn andOrCmdList(parser: *Parser) errors!?AndOrCmdList {
+        if (try parser.pipeline()) |pl| {
+            var op_range: Range = undefined;
+            var bin_op_kind: ast.BinaryOp.BinaryOpKind = undefined;
+            if (parser.isOperator(.AND, &op_range)) {
+                bin_op_kind = ast.BinaryOp.BinaryOpKind.AND;
+            } else if (parser.isOperator(.OR, &op_range)) {
+                bin_op_kind = ast.BinaryOp.BinaryOpKind.OR;
+            } else {
+                return pl;
+            }
+            parser.linebreak();
+            if (try parser.andOrCmdList()) |and_or_right| {
+                return try ast.BinaryOp.create(parser.allocator, .{ .left = pl, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
+            } else {
+                // TODO error if and_or_right command is invalid
+                // or read newline
+                return pl;
+            }
         } else {
-            return pl;
+            return null;
         }
-
-        // TODO error if and_or_right command is invalid
-        // maybe create here should just return the andOrCmd()
-        const and_or_right = try parser.andOrCmdList();
-
-        const and_or_left = try ast.BinaryOp.create(parser.allocator, .{ .left = pl, .right = and_or_right, .op_range = op_range, .kind = bin_op_kind });
-
-        return and_or_left;
     }
 
-    /// pipeline  : pipe_sequence
-    ///           | Bang pipe_sequence
+    /// pipeline       : pipe_sequence
+    ///                | Bang pipe_sequence
     /// pipe_sequence  : command
-    ///                | pipe_sequence '|' linebreak command TODO linebreak
-    fn pipeline(parser: *Parser) errors!AndOrCmdList {
+    ///                | pipe_sequence '|' linebreak command
+    fn pipeline(parser: *Parser) errors!?AndOrCmdList {
         var command_array = std.ArrayList(ast.Command).init(parser.allocator);
         defer command_array.deinit();
 
         var range: Range = undefined;
         const has_bang = parser.consumeToken("!", &range);
-        var bang_pos: ?Position = null;
-        if (has_bang) {
-            bang_pos = range.begin;
+        const bang_pos = if (has_bang) range.begin else null;
+
+        if (try parser.command()) |cmd| {
+            try command_array.append(cmd);
+        } else {
+            return null;
         }
 
-        try command_array.append(try parser.command());
-
         while (parser.consumeToken("|", null)) {
-            const cmd = parser.command() catch |err| switch (err) {
-                error.ExpectedCommand => {
-                    std.debug.print("expected command.\n", .{});
-                    break;
-                },
-                else => return err,
-            };
-            try command_array.append(cmd);
+            parser.linebreak();
+            if (try parser.command()) |cmd| {
+                try command_array.append(cmd);
+            } else {
+                // TODO maybe have an error, see if needed
+                break;
+            }
         }
 
         return try ast.Pipeline.create(parser.allocator, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang, .bang_pos = bang_pos });
@@ -182,15 +183,16 @@ pub const Parser = struct {
     ///          | compound_command
     ///          | compound_command redirect_list TODO
     ///          | function_definition
-    fn command(parser: *Parser) errors!Command {
+    fn command(parser: *Parser) errors!?Command {
         if (try parser.compoundCommand()) |cmd| {
+            // TODO redirects
             return cmd;
         } else if (try parser.funcDeclaration()) |func| {
             return func;
         } else if (try parser.simpleCommand()) |simple_cmd| {
             return simple_cmd;
         } else {
-            return error.ExpectedCommand;
+            return null;
         }
     }
 
@@ -967,6 +969,20 @@ pub const Parser = struct {
         return true;
     }
 
+    /// linebreak
+    fn linebreak(parser: *Parser) void {
+        while (parser.isNewLine()) {}
+    }
+
+    /// newline_list
+    fn consumeNewLine(parser: *Parser) bool {
+        if (!parser.isNewLine()) {
+            return false;
+        }
+        parser.linebreak();
+        return true;
+    }
+
     /// Representation of the symbols supported
     const Symbol = enum {
         /// End Of File
@@ -1105,9 +1121,13 @@ pub const Parser = struct {
         return true;
     }
 
-    /// Checks if current symbol is EOF.
-    fn atEnd(parser: *Parser) bool {
-        return parser.isCurrentSymbol(.EOF);
+    fn isNewLine(parser: *Parser) bool {
+        if (!parser.isCurrentSymbol(.NEWLINE)) {
+            return false;
+        }
+        std.debug.assert(parser.readChar().? == '\n');
+        parser.resetCurrentSymbol();
+        return true;
     }
 };
 
