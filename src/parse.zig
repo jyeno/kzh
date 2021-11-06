@@ -33,7 +33,7 @@
 //! %token  Lbrace    Rbrace    Bang
 //!          '{'       '}'       '!'
 //!
-//! %token  In  TODO
+//! %token  In
 //!        'in'
 
 // TODO: maybe create parse/word.zig and parse/command.zig
@@ -53,7 +53,6 @@ pub const Parser = struct {
     /// source is not owned by the parser
     source: []const u8,
     allocator: *mem.Allocator,
-    // TODO fix usage, currently it is used only the column property, and this is not right
     currentPos: usize = 0,
     currentSymbol: ?Symbol = null,
 
@@ -74,7 +73,6 @@ pub const Parser = struct {
         var command_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
         defer command_list_array.deinit();
 
-        // TODO separator
         while (try parser.commandList()) |cmd_list| {
             try command_list_array.append(cmd_list);
         }
@@ -89,7 +87,7 @@ pub const Parser = struct {
         if (try parser.andOrCmdList()) |and_or_cmd_list| {
             var command_list: ast.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
 
-            if (parser.separatorOperator()) |sep| {
+            if (parser.separator()) |sep| {
                 if (sep == '&') {
                     command_list.is_async = true;
                 }
@@ -329,8 +327,12 @@ pub const Parser = struct {
     /// TODO get sequential_sep
     fn forDeclaration(parser: *Parser) errors!?Command {
         // TODO fix, still buggy
+        var is_selection = false;
         if (!parser.consumeToken("for")) {
-            return null;
+            if (!parser.consumeToken("select")) {
+                return null;
+            }
+            is_selection = true;
         }
         const name_size = parser.peekNameSize();
         if (name_size == 0) {
@@ -367,7 +369,7 @@ pub const Parser = struct {
             }
         };
         if (try parser.doGroup()) |body| {
-            return try ast.ForDecl.create(parser.allocator, .{ .name = name, .has_in = has_in, .list = for_list, .body = body });
+            return try ast.ForDecl.create(parser.allocator, .{ .name = name, .has_in = has_in, .list = for_list, .body = body, .is_selection = is_selection });
         }
         // TODO error if comes here
         return null;

@@ -232,9 +232,9 @@ pub const IfDecl = struct {
 pub const ForDecl = struct {
     name: []const u8,
     has_in: bool,
+    is_selection: bool,
     list: ?[]Word,
     body: []*CommandList,
-    // TODO add select option
 
     pub fn cmd(self: *ForDecl) Command {
         return .{ .impl = self, .kind = .FOR_DECL, .deinitFn = deinit, .printFn = print };
@@ -263,7 +263,12 @@ pub const ForDecl = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("FOR list:", .{});
+        if (self.is_selection) {
+            std.debug.print("SELECT ", .{});
+        } else {
+            std.debug.print("FOR ", .{});
+        }
+        std.debug.print("list:", .{});
         if (self.list) |word_list| {
             std.debug.print("\n", .{});
             for (word_list) |word_value| {
