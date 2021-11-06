@@ -16,10 +16,12 @@ pub const Command = struct {
     /// Command type representation
     pub const CommandKind = enum {
         SIMPLE_COMMAND,
+        CMD_GROUP,
 
         pub fn Type(self: CommandKind) type {
             return switch (self) {
                 .SIMPLE_COMMAND => SimpleCommand,
+                .CMD_GROUP => CmdGroup,
             };
         }
     };
@@ -125,6 +127,44 @@ pub const SimpleCommand = struct {
     /// has no `name`, `io_redirs` and `assigns`, retuns false otherwise
     pub fn isEmpty(self: *SimpleCommand) bool {
         return self.name == null and self.io_redirs == null and self.assigns == null;
+    }
+};
+
+pub const CmdGroup = struct {
+    body: []*CommandList,
+    kind: GroupKind,
+
+    pub const GroupKind = enum {
+        BRACE_GROUP,
+        SUBSHELL,
+    };
+
+    pub fn cmd(self: *CmdGroup) Command {
+        return .{ .impl = self, .kind = .CMD_GROUP, .deinitFn = deinit, .printFn = print };
+    }
+
+    pub fn create(allocator: *mem.Allocator, cgroup: CmdGroup) !Command {
+        const cmd_group = try allocator.create(CmdGroup);
+        cmd_group.* = cgroup;
+        return cmd_group.cmd();
+    }
+
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+        const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
+        for (self.body) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.destroy(self);
+    }
+    pub fn print(self_void: *c_void, spacing: usize) void {
+        const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("{}:\n", .{self.kind});
+        for (self.body) |cmd_list| {
+            cmd_list.print(spacing + 2);
+        }
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("end\n", .{});
     }
 };
 

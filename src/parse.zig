@@ -30,7 +30,7 @@
 //! These are reserved words, not operator tokens, and are
 //! recognized when reserved words are recognized.
 //!
-//! %token  Lbrace    Rbrace    Bang  TODO
+//! %token  Lbrace    Rbrace    Bang
 //!          '{'       '}'       '!'
 //!
 //! %token  In  TODO
@@ -225,17 +225,15 @@ pub const Parser = struct {
     ///                   | while_clause
     ///                   | until_clause
     fn compoundCommand(parser: *Parser) errors!?Command {
-        if (try parser.braceGroup()) |brace_cmd| {
-            return brace_cmd;
-        } else if (try parser.subshell()) |sub_shell| {
-            return sub_shell;
+        if (try parser.cmdGroup()) |cmd_group| { // brace_group and subshell
+            return cmd_group;
         } else if (try parser.forDeclaration()) |for_decl| {
             return for_decl;
         } else if (try parser.caseDeclaration()) |case_decl| {
             return case_decl;
         } else if (try parser.ifDeclaration()) |if_decl| {
             return if_decl;
-        } else if (try parser.loopDeclaration()) |loop_decl| {
+        } else if (try parser.loopDeclaration()) |loop_decl| { // while and until
             return loop_decl;
         } else {
             return null;
@@ -243,24 +241,55 @@ pub const Parser = struct {
     }
 
     /// brace_group  : Lbrace compound_list Rbrace
-    fn braceGroup(parser: *Parser) errors!?Command {
-        _ = parser;
+    /// subshell     : '(' compound_list ')'
+    fn cmdGroup(parser: *Parser) errors!?Command {
+        var closing_char = "}";
+        if (!parser.consumeToken("{", null)) {
+            closing_char = ")";
+            if (!parser.consumeToken("(", null)) {
+                return null;
+            }
+        }
+        if (try parser.compoundList()) |body| {
+            // TODO read newline until lchar
+            if (parser.consumeToken(closing_char, null)) {
+                return try ast.CmdGroup.create(parser.allocator, .{ .body = body, .kind = if (closing_char[0] == '}') .BRACE_GROUP else .SUBSHELL });
+            }
+            for (body) |cmd_list| {
+                cmd_list.deinit(parser.allocator);
+            }
+            parser.allocator.free(body);
+        }
         return null;
-        //
     }
 
     /// compound_list  : linebreak term
     ///                | linebreak term separator
-    /// term  : term separator and_or
-    ///       | and_or
-    fn compoundList(parser: *Parser) errors!?Command {
-        _ = parser;
-        return null;
-    }
+    /// term           : term separator and_or
+    ///                | and_or
+    fn compoundList(parser: *Parser) errors!?[]*ast.CommandList {
+        parser.linebreak();
+        var cmd_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
+        defer cmd_list_array.deinit();
 
-    /// subshell  : '(' compound_list ')'
-    fn subshell(parser: *Parser) errors!?Command {
-        _ = parser;
+        while (try parser.andOrCmdList()) |and_or_cmd| {
+            const separator_pos = parser.currentPos;
+            // TODO here_document
+            if (parser.separator()) |sep| {
+                try cmd_list_array.append(try ast.CommandList.create(parser.allocator, .{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&', .separator_pos = separator_pos }));
+            } else {
+                try cmd_list_array.append(try ast.CommandList.create(parser.allocator, .{ .and_or_cmd_list = and_or_cmd }));
+            }
+        }
+        if (cmd_list_array.items.len > 0) {
+            // TODO consider including this deinitialization and two parameters with token and range
+            // if not token, then deinitializes and return null
+            // for (body) |cmd_list| {
+            //     cmd_list.deinit(parser.allocator);
+            // }
+            // parser.allocator.free(body);
+            return cmd_list_array.toOwnedSlice();
+        }
         return null;
     }
 
@@ -558,7 +587,7 @@ pub const Parser = struct {
             if (currentChar == endChar) break;
 
             const word_value: ?Word = switch (currentChar) {
-                '\n', ')' => break,
+                '\n', ')', '}' => break,
                 '$' => try parser.wordDollar(),
                 '`' => try parser.wordBackQuotes(),
                 '\'' => try parser.wordSingleQuotes(),
@@ -871,7 +900,7 @@ pub const Parser = struct {
         while (parser.peek(n + 1)) |strPeek| : (n += 1) {
             const ch = strPeek[n];
             switch (ch) {
-                '\n', ')' => return n,
+                '\n', ')', '}' => return n, // TODO this } maybe is wrong placed here, consider if it is worth it
                 '$', '`', '\'', '"' => return 0,
                 '\\' => n += 1,
                 else => {

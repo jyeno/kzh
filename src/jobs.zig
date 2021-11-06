@@ -71,6 +71,7 @@ pub const JobController = struct {
         // maybe a run function at the command interface?
         switch (cmd.kind) {
             .SIMPLE_COMMAND => self.last_status = try exec.simpleCommand(cmd.cast(.SIMPLE_COMMAND).?),
+            else => unreachable,
         }
     }
 
