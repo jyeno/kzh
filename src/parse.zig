@@ -716,7 +716,7 @@ pub const Parser = struct {
             const word_value: ?Word = switch (currentChar) {
                 '\n', ')', '}' => break,
                 '$' => try parser.wordDollar(),
-                '`' => try parser.wordBackQuotes(),
+                '`' => try parser.wordCommand(true),
                 '\'' => try parser.wordSingleQuotes(),
                 '"' => try parser.wordDoubleQuotes(),
                 else => null,
@@ -756,35 +756,17 @@ pub const Parser = struct {
         unreachable;
     }
 
-    /// Creates a word command determined by back quotes
-    fn wordBackQuotes(parser: *Parser) !?Word {
-        // TODO consider making this a generic function, to not repeat code
-        // TODO check behavior when unclosed back quotes
-        std.debug.assert(parser.readChar().? == '`');
+    fn wordCommand(parser: *Parser, back_quotes: bool) !?Word {
+        const open_close_ch = if (back_quotes) "``" else "()";
+        std.debug.assert(parser.readChar().? == open_close_ch[0]);
 
-        const word_size = parser.peekWordSizeUntil('`');
+        const word_size = parser.peekWordSizeUntil(open_close_ch[1]);
         if (parser.readToken(word_size)) |buffer| {
-            std.debug.assert(parser.readChar().? == '`');
+            std.debug.assert(parser.readChar().? == open_close_ch[1]);
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
-            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = true });
-        }
-        // TODO treat better the parsing error
-        std.debug.print("back quotes not terminated\n", .{});
-        return null;
-    }
-
-    fn wordCommand(parser: *Parser) !?Word {
-        std.debug.assert(parser.readChar().? == '(');
-
-        const word_size = parser.peekWordSizeUntil(')');
-        if (parser.readToken(word_size)) |buffer| {
-            std.debug.assert(parser.readChar().? == ')');
-
-            var subparser = Parser.init(parser.allocator, buffer);
-            const sub_program = try subparser.parse();
-            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = false });
+            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = back_quotes });
         }
 
         return null;
@@ -802,7 +784,7 @@ pub const Parser = struct {
                         if (next[1] == '(') {
                             return try parser.wordArithmetic();
                         } else {
-                            return try parser.wordCommand();
+                            return try parser.wordCommand(false);
                         }
                     } else {
                         return null; // TODO read new line of input, see ksh behavior
@@ -838,7 +820,7 @@ pub const Parser = struct {
         while (parser.peekChar()) |currentChar| {
             const word_value: ?Word = switch (currentChar) {
                 '"' => break,
-                '`' => try parser.wordBackQuotes(),
+                '`' => try parser.wordCommand(true),
                 '$' => try parser.wordDollar(),
                 else => null,
             };
