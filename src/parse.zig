@@ -333,10 +333,28 @@ pub const Parser = struct {
     ///             | For name linebreak in          sequential_sep do_group
     ///             | For name linebreak in wordlist sequential_sep do_group
     /// in          : In   /* Apply rule 6 */
-    /// do_group : Do compound_list Done   /* Apply rule 6 */
-    ///
+    /// TODO get sequential_sep
     fn forDeclaration(parser: *Parser) errors!?Command {
         _ = parser;
+        return null;
+    }
+
+    /// do_group : Do compound_list Done   /* Apply rule 6 */
+    fn doGroup(parser: *Parser) errors!?[]*ast.CommandList {
+        if (!parser.consumeToken("do", null)) {
+            // TODO have error or read newline
+            return null;
+        }
+        if (try parser.compoundList()) |body| {
+            if (parser.consumeToken("done", null)) {
+                return body;
+            }
+            // TODO consider have this logic on compoundList
+            for (body) |cmd_list| {
+                cmd_list.deinit(parser.allocator);
+            }
+            parser.allocator.free(body);
+        }
         return null;
     }
 
@@ -408,7 +426,24 @@ pub const Parser = struct {
     /// while_clause  : While compound_list do_group
     /// until_clause  : Until compound_list do_group
     fn loopDeclaration(parser: *Parser) errors!?Command {
-        _ = parser;
+        var loop_kind: ast.LoopDecl.LoopKind = undefined;
+        if (parser.consumeToken("while", null)) {
+            loop_kind = .WHILE;
+        } else if (parser.consumeToken("until", null)) {
+            loop_kind = .UNTIL;
+        } else {
+            return null;
+        }
+
+        if (try parser.compoundList()) |condition| {
+            if (try parser.doGroup()) |body| {
+                return try ast.LoopDecl.create(parser.allocator, .{ .condition = condition, .body = body, .kind = loop_kind });
+            }
+            for (condition) |cmd_list| {
+                cmd_list.deinit(parser.allocator);
+            }
+            parser.allocator.free(condition);
+        }
         return null;
     }
 

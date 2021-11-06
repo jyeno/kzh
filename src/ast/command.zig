@@ -18,6 +18,7 @@ pub const Command = struct {
         SIMPLE_COMMAND,
         CMD_GROUP,
         IF_DECL,
+        LOOP_DECL,
         FUNC_DECL,
 
         pub fn Type(self: CommandKind) type {
@@ -25,6 +26,7 @@ pub const Command = struct {
                 .SIMPLE_COMMAND => SimpleCommand,
                 .CMD_GROUP => CmdGroup,
                 .IF_DECL => IfDecl,
+                .LOOP_DECL => LoopDecl,
                 .FUNC_DECL => FuncDecl,
             };
         }
@@ -221,6 +223,55 @@ pub const IfDecl = struct {
             else_part.print(spacing + 5);
         } else {
             std.debug.print("null\n", .{});
+        }
+    }
+};
+
+pub const LoopDecl = struct {
+    kind: LoopKind,
+    condition: []*CommandList,
+    body: []*CommandList,
+
+    pub const LoopKind = enum {
+        WHILE,
+        UNTIL,
+    };
+    pub fn cmd(self: *LoopDecl) Command {
+        return .{ .impl = self, .kind = .LOOP_DECL, .deinitFn = deinit, .printFn = print };
+    }
+
+    pub fn create(allocator: *mem.Allocator, loopdecl: LoopDecl) !Command {
+        const loop_decl = try allocator.create(LoopDecl);
+        loop_decl.* = loopdecl;
+        return loop_decl.cmd();
+    }
+
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+        const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
+        for (self.condition) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.free(self.condition);
+        for (self.body) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.free(self.body);
+        allocator.destroy(self);
+    }
+
+    pub fn print(self_void: *c_void, spacing: usize) void {
+        const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("{}:\n", .{self.kind});
+        std.debug.print(csi ++ "{}C", .{spacing + 2});
+        std.debug.print("condition:\n", .{});
+        for (self.condition) |cond| {
+            cond.print(spacing + 4);
+        }
+        std.debug.print(csi ++ "{}C", .{spacing + 2});
+        std.debug.print("body:\n", .{});
+        for (self.body) |cmd_list| {
+            cmd_list.print(spacing + 4);
         }
     }
 };
