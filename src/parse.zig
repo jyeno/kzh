@@ -424,7 +424,6 @@ pub const Parser = struct {
         }
         // TODO correctly treat errors, readlines if needed
         if (try parser.compoundList()) |condition| {
-            // TODO consider if should consume ";" if any
             if (parser.consumeToken("then")) {
                 if (try parser.compoundList()) |body| {
                     const else_decl = try parser.elseDeclaration();
@@ -1271,11 +1270,11 @@ test "Group Command" {
 }
 
 test "Parse Command List Separator" {
-    const command_string = "echo oi;print test; builtin pwd &";
+    // TODO consider add \n
+    const command_string = "echo oi\nprint test; builtin pwd &";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     const cmd_array = program.body;
     try testing.expect(cmd_array.len == 3);
@@ -1299,7 +1298,6 @@ test "Parse And Or Cmd List" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     try testing.expect(program.body.len == 1);
 
@@ -1325,7 +1323,6 @@ test "Parse Pipeline" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 3);
@@ -1354,7 +1351,6 @@ test "Parse Simple Command" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 1);
@@ -1378,7 +1374,6 @@ test "Parse Simple Command with IO redirection" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1407,7 +1402,6 @@ test "Parse Simple Command Assignments" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1428,7 +1422,6 @@ test "Parse Simple Command Assignments" {
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
     defer program2.deinit(testing.allocator);
-    // program2.print(1);
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name == null);
@@ -1452,7 +1445,6 @@ test "Parse Word Command" {
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
     defer program1.deinit(testing.allocator);
-    // program1.print(1);
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -1485,7 +1477,6 @@ test "Parse Word Command" {
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
     defer program2.deinit(testing.allocator);
-    // program2.print(1);
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name != null);
@@ -1511,7 +1502,6 @@ test "Parse Word Parameter" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);
@@ -1574,7 +1564,6 @@ test "Parse Word Quotes and backslash" {
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
     defer program.deinit(testing.allocator);
-    // program.print(1);
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);

@@ -34,16 +34,6 @@ pub const Program = struct {
         allocator.free(self.body);
         allocator.destroy(self);
     }
-
-    /// Prints the Program Representation
-    pub fn print(self: *Program, spacing: usize) void {
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("program\n", .{});
-        for (self.body) |command_list| {
-            command_list.print(spacing + 2);
-        }
-        std.debug.print("\n", .{});
-    }
 };
 
 /// Command List representation
@@ -64,13 +54,6 @@ pub const CommandList = struct {
         self.and_or_cmd_list.deinit(allocator);
         allocator.destroy(self);
     }
-
-    /// Prints the Command List representation
-    pub fn print(self: *CommandList, spacing: usize) void {
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("cmd_list is_async ({}):\n", .{self.is_async});
-        self.and_or_cmd_list.print(spacing + 2);
-    }
 };
 
 /// And Or Command List representation
@@ -78,7 +61,6 @@ pub const AndOrCmdList = struct {
     impl: *c_void,
     kind: AndOrCmdListKind,
     deinitFn: fn (*c_void, *mem.Allocator) void,
-    printFn: fn (*c_void, usize) void,
 
     /// And Or Command List type representation
     pub const AndOrCmdListKind = enum(u1) {
@@ -108,11 +90,6 @@ pub const AndOrCmdList = struct {
     pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: *mem.Allocator) void {
         and_or_cmd.deinitFn(and_or_cmd.impl, allocator);
     }
-
-    /// Calls the correct printer of the data representation of `AndOrCmdList`
-    pub fn print(and_or_cmd: *const AndOrCmdList, spacing: usize) void {
-        and_or_cmd.printFn(and_or_cmd.impl, spacing);
-    }
 };
 
 /// Pipeline representation
@@ -121,7 +98,11 @@ pub const Pipeline = struct {
     has_bang: bool,
 
     pub fn andOrCmd(self: *Pipeline) AndOrCmdList {
-        return .{ .impl = self, .kind = .PIPELINE, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .PIPELINE,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -141,16 +122,6 @@ pub const Pipeline = struct {
         allocator.free(self.commands);
         allocator.destroy(self);
     }
-
-    /// Prints the Pipeline representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*Pipeline, @alignCast(@alignOf(Pipeline), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("pipeline len ({}) has_bang ({}):\n", .{ self.commands.len, self.has_bang });
-        for (self.commands) |cmd| {
-            cmd.print(spacing + 2);
-        }
-    }
 };
 
 /// Binary Operation representation
@@ -167,7 +138,11 @@ pub const BinaryOp = struct {
     };
 
     pub fn andOrCmd(self: *BinaryOp) AndOrCmdList {
-        return .{ .impl = self, .kind = .BINARY_OP, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .BINARY_OP,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -184,12 +159,5 @@ pub const BinaryOp = struct {
         self.left.deinit(allocator);
         self.right.deinit(allocator);
         allocator.destroy(self);
-    }
-
-    /// Prints the Binary Operation representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("binary_op {} left: {} right: {}\n", .{ self.kind, self.left, self.right });
     }
 };

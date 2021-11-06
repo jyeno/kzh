@@ -11,7 +11,6 @@ pub const Word = struct {
     impl: *c_void,
     kind: WordKind,
     deinitFn: fn (*c_void, *std.mem.Allocator) void,
-    printFn: fn (*c_void, usize) void,
 
     pub const WordKind = enum {
         STRING,
@@ -42,10 +41,6 @@ pub const Word = struct {
     pub fn deinit(word: *const Word, allocator: *std.mem.Allocator) void {
         word.deinitFn(word.impl, allocator);
     }
-
-    pub fn print(word: *const Word, spacing: usize) void {
-        word.printFn(word.impl, spacing);
-    }
 };
 
 /// Word String representation
@@ -56,7 +51,7 @@ pub const WordString = struct {
     is_single_quoted: bool = false,
 
     pub fn word(self: *WordString) Word {
-        return .{ .impl = self, .kind = .STRING, .deinitFn = deinit, .printFn = print };
+        return .{ .impl = self, .kind = .STRING, .deinitFn = deinit };
     }
 
     /// Initializes the memory using given `allocator`
@@ -71,13 +66,6 @@ pub const WordString = struct {
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
         var self = @ptrCast(*WordString, @alignCast(@alignOf(WordString), self_void));
         allocator.destroy(self);
-    }
-
-    /// Prints the Word String representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*WordString, @alignCast(@alignOf(WordString), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_string {s}  is_single_quoted ({})\n", .{ self.str, self.is_single_quoted });
     }
 };
 
@@ -117,7 +105,11 @@ pub const WordParameter = struct {
     };
 
     pub fn word(self: *WordParameter) Word {
-        return .{ .impl = self, .kind = .PARAMETER, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .PARAMETER,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -136,18 +128,6 @@ pub const WordParameter = struct {
         }
         allocator.destroy(self);
     }
-
-    /// Prints the Word Parameter representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*WordParameter, @alignCast(@alignOf(WordParameter), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_param ({}) name: {s} has_colon ({}) arg:", .{ self.op, self.name, self.has_colon });
-        if (self.arg) |word_arg| {
-            word_arg.print(spacing + 2);
-        } else {
-            std.debug.print(" null\n", .{});
-        }
-    }
 };
 
 /// Word Command representation, $(program) or `program`
@@ -158,7 +138,11 @@ pub const WordCommand = struct {
     // TODO maybe,  word() ?
 
     pub fn word(self: *WordCommand) Word {
-        return .{ .impl = self, .kind = .COMMAND, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .COMMAND,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -177,17 +161,6 @@ pub const WordCommand = struct {
         }
         allocator.destroy(self);
     }
-
-    /// Prints the Word Command representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*WordCommand, @alignCast(@alignOf(WordCommand), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_command is_back_quoted: {}\n", .{self.is_back_quoted});
-        if (self.program) |prog| {
-            std.debug.print(csi ++ "{}C", .{spacing});
-            prog.print(spacing + 2);
-        }
-    }
 };
 
 /// Word Arithmetic representation
@@ -195,7 +168,11 @@ pub const WordArithm = struct {
     body: Word,
 
     pub fn word(self: *WordArithm) Word {
-        return .{ .impl = self, .kind = .ARITHMETIC, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .ARITHMETIC,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -212,14 +189,6 @@ pub const WordArithm = struct {
         self.body.deinit(allocator);
         allocator.destroy(self);
     }
-
-    /// Prints the Word Arithmetic representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*WordArithm, @alignCast(@alignOf(WordArithm), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_arithm ({}) body:\n   ", .{self});
-        self.body.print(spacing + 2);
-    }
 };
 
 /// Word List representation
@@ -228,7 +197,11 @@ pub const WordList = struct {
     is_double_quoted: bool,
 
     pub fn word(self: *WordList) Word {
-        return .{ .impl = self, .kind = .LIST, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .LIST,
+            .deinitFn = deinit,
+        };
     }
 
     /// Initializes the memory using given `allocator`
@@ -247,17 +220,5 @@ pub const WordList = struct {
         }
         allocator.free(self.items);
         allocator.destroy(self);
-    }
-
-    /// Prints the Word List representation
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*WordList, @alignCast(@alignOf(WordList), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("word_list ({}) is_double_quoted: {}:\n", .{ self.items.len, self.is_double_quoted });
-        for (self.items) |item| {
-            item.print(spacing + 2);
-        }
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("end_word_list\n", .{});
     }
 };

@@ -54,7 +54,6 @@ fn kzhLoop(alloca: *std.mem.Allocator) !void {
                 continue;
             };
             defer program.deinit(alloca);
-            // program.print(1);
 
             // TODO consider, should just use try here or should errors be treated inside of the job_ctl?
             try job_ctl.run(program);

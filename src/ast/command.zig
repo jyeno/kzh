@@ -11,7 +11,6 @@ pub const Command = struct {
     impl: *c_void,
     kind: CommandKind,
     deinitFn: fn (*c_void, *mem.Allocator) void,
-    printFn: fn (*c_void, usize) void,
 
     /// Command type representation
     pub const CommandKind = enum {
@@ -47,11 +46,6 @@ pub const Command = struct {
     pub fn deinit(cmd: *const Command, allocator: *mem.Allocator) void {
         cmd.deinitFn(cmd.impl, allocator);
     }
-
-    /// Prints the Simple Command representation
-    pub fn print(cmd: *const Command, spacing: usize) void {
-        cmd.printFn(cmd.impl, spacing);
-    }
 };
 
 /// Simple Command representation
@@ -62,7 +56,11 @@ pub const SimpleCommand = struct {
     assigns: ?[]Assign = null,
 
     pub fn cmd(self: *SimpleCommand) Command {
-        return .{ .impl = self, .kind = .SIMPLE_COMMAND, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .SIMPLE_COMMAND,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, simple_command: SimpleCommand) !Command {
@@ -99,38 +97,6 @@ pub const SimpleCommand = struct {
         allocator.destroy(self);
     }
 
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        var self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("simple_command:\n", .{});
-        if (self.io_redirs) |io_redirects| {
-            for (io_redirects) |io_redir| {
-                std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("io_redir op: {} name: {s} io_num: {}\n", .{ io_redir.op, io_redir.name.cast(Word.WordKind.STRING).?.str, io_redir.io_num });
-                // TODO fix this
-            }
-        }
-        if (self.assigns) |assignments| {
-            for (assignments) |assign| {
-                std.debug.print(csi ++ "{}C", .{spacing + 2});
-                std.debug.print("assign name: {s}  value:\n", .{assign.name});
-                if (assign.value) |v| {
-                    v.print(spacing + 2);
-                } else {
-                    std.debug.print("\"\"", .{});
-                }
-            }
-        }
-        if (self.name) |word_name| {
-            word_name.print(spacing + 2);
-        }
-        if (self.args) |args| {
-            for (args) |arg| {
-                arg.print(spacing + 2);
-            }
-        }
-    }
-
     /// Checks whenether the simple command is empty, returns true if it
     /// has no `name`, `io_redirs` and `assigns`, retuns false otherwise
     pub fn isEmpty(self: *SimpleCommand) bool {
@@ -148,7 +114,11 @@ pub const CmdGroup = struct {
     };
 
     pub fn cmd(self: *CmdGroup) Command {
-        return .{ .impl = self, .kind = .CMD_GROUP, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .CMD_GROUP,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, cgroup: CmdGroup) !Command {
@@ -164,17 +134,6 @@ pub const CmdGroup = struct {
         }
         allocator.destroy(self);
     }
-
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("{}:\n", .{self.kind});
-        for (self.body) |cmd_list| {
-            cmd_list.print(spacing + 2);
-        }
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("end\n", .{});
-    }
 };
 
 pub const IfDecl = struct {
@@ -183,7 +142,11 @@ pub const IfDecl = struct {
     else_decl: ?Command,
 
     pub fn cmd(self: *IfDecl) Command {
-        return .{ .impl = self, .kind = .IF_DECL, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .IF_DECL,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, ifdecl: IfDecl) !Command {
@@ -205,28 +168,6 @@ pub const IfDecl = struct {
         if (self.else_decl) |else_part| else_part.deinit(allocator);
         allocator.destroy(self);
     }
-
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("if condition:\n", .{});
-        for (self.condition) |cond| {
-            cond.print(spacing + 5);
-        }
-        std.debug.print(csi ++ "{}C", .{spacing + 3});
-        std.debug.print("body:\n", .{});
-        for (self.body) |cmd_list| {
-            cmd_list.print(spacing + 5);
-        }
-        std.debug.print(csi ++ "{}C", .{spacing + 3});
-        std.debug.print("else ", .{});
-        if (self.else_decl) |else_part| {
-            std.debug.print("\n", .{});
-            else_part.print(spacing + 5);
-        } else {
-            std.debug.print("null\n", .{});
-        }
-    }
 };
 
 pub const ForDecl = struct {
@@ -237,7 +178,11 @@ pub const ForDecl = struct {
     body: []*CommandList,
 
     pub fn cmd(self: *ForDecl) Command {
-        return .{ .impl = self, .kind = .FOR_DECL, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .FOR_DECL,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, fordecl: ForDecl) !Command {
@@ -260,29 +205,6 @@ pub const ForDecl = struct {
         allocator.free(self.body);
         allocator.destroy(self);
     }
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        if (self.is_selection) {
-            std.debug.print("SELECT ", .{});
-        } else {
-            std.debug.print("FOR ", .{});
-        }
-        std.debug.print("list:", .{});
-        if (self.list) |word_list| {
-            std.debug.print("\n", .{});
-            for (word_list) |word_value| {
-                word_value.print(spacing + 2);
-            }
-        } else {
-            std.debug.print(" null\n", .{});
-        }
-        std.debug.print(csi ++ "{}C", .{spacing + 4});
-        std.debug.print("body:\n", .{});
-        for (self.body) |cmd_list| {
-            cmd_list.print(spacing + 6);
-        }
-    }
 };
 
 pub const LoopDecl = struct {
@@ -295,7 +217,11 @@ pub const LoopDecl = struct {
         UNTIL,
     };
     pub fn cmd(self: *LoopDecl) Command {
-        return .{ .impl = self, .kind = .LOOP_DECL, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .LOOP_DECL,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, loopdecl: LoopDecl) !Command {
@@ -316,22 +242,6 @@ pub const LoopDecl = struct {
         allocator.free(self.body);
         allocator.destroy(self);
     }
-
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("{}:\n", .{self.kind});
-        std.debug.print(csi ++ "{}C", .{spacing + 2});
-        std.debug.print("condition:\n", .{});
-        for (self.condition) |cond| {
-            cond.print(spacing + 4);
-        }
-        std.debug.print(csi ++ "{}C", .{spacing + 2});
-        std.debug.print("body:\n", .{});
-        for (self.body) |cmd_list| {
-            cmd_list.print(spacing + 4);
-        }
-    }
 };
 
 pub const FuncDecl = struct {
@@ -341,7 +251,11 @@ pub const FuncDecl = struct {
     io_redirs: ?[]IORedir = null,
 
     pub fn cmd(self: *FuncDecl) Command {
-        return .{ .impl = self, .kind = .FUNC_DECL, .deinitFn = deinit, .printFn = print };
+        return .{
+            .impl = self,
+            .kind = .FUNC_DECL,
+            .deinitFn = deinit,
+        };
     }
 
     pub fn create(allocator: *mem.Allocator, func_decl: FuncDecl) !Command {
@@ -362,13 +276,6 @@ pub const FuncDecl = struct {
         }
         allocator.free(self.name);
         allocator.destroy(self);
-    }
-
-    pub fn print(self_void: *c_void, spacing: usize) void {
-        const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
-        std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("func {s} io_redirs ({s}) cmd:\n", .{ self.name, self.io_redirs });
-        self.body.print(spacing + 2);
     }
 };
 
