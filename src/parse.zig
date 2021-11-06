@@ -335,6 +335,49 @@ pub const Parser = struct {
     /// in          : In   /* Apply rule 6 */
     /// TODO get sequential_sep
     fn forDeclaration(parser: *Parser) errors!?Command {
+        // TODO fix, still buggy
+        if (!parser.consumeToken("for", null)) {
+            return null;
+        }
+        const name_size = parser.peekNameSize();
+        if (name_size == 0) {
+            // TODO have error
+            return null;
+        }
+        const name = parser.read(name_size).?;
+        parser.linebreak();
+        const has_in = parser.consumeToken("in", null);
+        const for_list: ?[]Word = blk: {
+            var word_array = std.ArrayList(Word).init(parser.allocator);
+            defer word_array.deinit();
+            if (has_in) {
+                // wordlist
+                while (try parser.word()) |word_val| {
+                    try word_array.append(word_val);
+                }
+            }
+
+            const has_sep = sequential_sep: {
+                if (parser.consumeToken(";", null)) {
+                    parser.linebreak();
+                    break :sequential_sep true;
+                }
+                break :sequential_sep parser.consumeNewLine();
+            };
+
+            if (word_array.items.len > 0) {
+                // TODO error if has_sep is false
+                _ = has_sep;
+                break :blk word_array.toOwnedSlice();
+            } else {
+                break :blk null;
+            }
+        };
+        if (try parser.doGroup()) |body| {
+            return try ast.ForDecl.create(parser.allocator, .{ .name = name, .has_in = has_in, .list = for_list, .body = body });
+        }
+        // TODO error if comes here
+
         _ = parser;
         return null;
     }

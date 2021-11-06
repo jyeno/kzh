@@ -18,6 +18,7 @@ pub const Command = struct {
         SIMPLE_COMMAND,
         CMD_GROUP,
         IF_DECL,
+        FOR_DECL,
         LOOP_DECL,
         FUNC_DECL,
 
@@ -26,6 +27,7 @@ pub const Command = struct {
                 .SIMPLE_COMMAND => SimpleCommand,
                 .CMD_GROUP => CmdGroup,
                 .IF_DECL => IfDecl,
+                .FOR_DECL => ForDecl,
                 .LOOP_DECL => LoopDecl,
                 .FUNC_DECL => FuncDecl,
             };
@@ -223,6 +225,56 @@ pub const IfDecl = struct {
             else_part.print(spacing + 5);
         } else {
             std.debug.print("null\n", .{});
+        }
+    }
+};
+
+pub const ForDecl = struct {
+    name: []const u8,
+    has_in: bool,
+    list: ?[]Word,
+    body: []*CommandList,
+
+    pub fn cmd(self: *ForDecl) Command {
+        return .{ .impl = self, .kind = .FOR_DECL, .deinitFn = deinit, .printFn = print };
+    }
+
+    pub fn create(allocator: *mem.Allocator, fordecl: ForDecl) !Command {
+        const for_decl = try allocator.create(ForDecl);
+        for_decl.* = fordecl;
+        return for_decl.cmd();
+    }
+
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+        const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
+        if (self.list) |word_list| {
+            for (word_list) |word| {
+                word.deinit(allocator);
+            }
+            allocator.free(word_list);
+        }
+        for (self.body) |cmd_list| {
+            cmd_list.deinit(allocator);
+        }
+        allocator.free(self.body);
+        allocator.destroy(self);
+    }
+    pub fn print(self_void: *c_void, spacing: usize) void {
+        const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("FOR list:", .{});
+        if (self.list) |word_list| {
+            std.debug.print("\n", .{});
+            for (word_list) |word_value| {
+                word_value.print(spacing + 2);
+            }
+        } else {
+            std.debug.print(" null\n", .{});
+        }
+        std.debug.print(csi ++ "{}C", .{spacing + 4});
+        std.debug.print("body:\n", .{});
+        for (self.body) |cmd_list| {
+            cmd_list.print(spacing + 6);
         }
     }
 };
