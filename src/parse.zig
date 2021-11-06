@@ -478,7 +478,7 @@ pub const Parser = struct {
         // TODO apply keywords
         const word_size = parser.peekWordSize();
         if (word_size == 0) {
-            return try parser.word(0);
+            return try parser.word();
         }
         if (parser.peek(word_size)) |strPeek| {
             if (keywords.get(strPeek)) |void_value| {
@@ -509,7 +509,7 @@ pub const Parser = struct {
         while (true) {
             if (try parser.IORedirect()) |io_redir| {
                 try io_redir_array.append(io_redir);
-            } else if (try parser.word(0)) |word_ptr| {
+            } else if (try parser.word()) |word_ptr| {
                 try word_array.append(word_ptr);
             } else {
                 break;
@@ -537,7 +537,7 @@ pub const Parser = struct {
                         const equal_pos = parser.currentPos;
                         _ = parser.readChar();
 
-                        const word_value = try parser.word(0);
+                        const word_value = try parser.word();
                         return Assign{ .name = name, .value = word_value, .name_range = name_range, .equal_pos = equal_pos };
                     }
                 }
@@ -599,7 +599,7 @@ pub const Parser = struct {
 
     /// filename  : WORD         * Apply rule 2 *
     fn IORedirFilename(parser: *Parser) !?Word {
-        return try parser.word(0); // TODO improve it, making use of rule 2 of grammar
+        return try parser.word(); // TODO improve it, making use of rule 2 of grammar
     }
 
     /// io_here  : DLESS     here_end
@@ -633,12 +633,12 @@ pub const Parser = struct {
     }
 
     /// cmd_word  : WORD                   * Apply rule 7b *
-    fn word(parser: *Parser, endChar: u8) errors!?Word {
+    fn word(parser: *Parser) errors!?Word {
         if (!parser.isCurrentSymbol(.TOKEN)) {
             return null;
         }
         if (parser.peekChar()) |initialChar| {
-            if (isOperatorStart(initialChar) or initialChar == ')' or initialChar == endChar) {
+            if (isOperatorStart(initialChar) or initialChar == ')') {
                 return null;
             }
         } else {
@@ -652,8 +652,6 @@ pub const Parser = struct {
         var n: usize = 0;
         while (parser.peek(n + 1)) |strPeek| {
             const currentChar = strPeek[n];
-            if (currentChar == endChar) break;
-
             const word_value: ?Word = switch (currentChar) {
                 '\n', ')', '}' => break,
                 '$' => try parser.wordDollar(),
@@ -822,18 +820,12 @@ pub const Parser = struct {
         return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true, .left_quote_pos = lquote_pos, .right_quote_pos = parser.currentPos });
     }
 
-    fn wordList(parser: *Parser, word_function: fn (*Parser, u8) errors!?Word, endChar: u8) !?Word {
+    fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
         var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
 
-        while (parser.peekChar()) |currentChar| {
-            if (currentChar == endChar) break;
-
-            if (try word_function(parser, endChar)) |word_value| {
-                try word_array.append(word_value);
-            } else {
-                break;
-            }
+        while (try word_function(parser)) |word_value| {
+            try word_array.append(word_value);
 
             var n: usize = 0;
             while (parser.peek(n + 1)) |strPeek| : (n += 1) {
@@ -914,7 +906,7 @@ pub const Parser = struct {
                 },
             };
 
-            arg = try parser.wordList(word, '}');
+            arg = try parser.wordList(word);
         }
 
         std.debug.assert(parser.readChar().? == '}');
