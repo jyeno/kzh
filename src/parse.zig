@@ -337,19 +337,49 @@ pub const Parser = struct {
                 break;
             }
         }
-        // whenether it is going to be null or not is up to cmdArgs
-        cmd.io_redirs = io_redir_array.toOwnedSlice();
 
+        if (io_redir_array.items.len > 0) {
+            cmd.io_redirs = io_redir_array.toOwnedSlice();
+        }
         if (assigns_array.items.len > 0) {
             cmd.assigns = assigns_array.toOwnedSlice();
         }
     }
 
+    // used only as a way to quickly verify keywords
+    const keywords = std.ComptimeStringMap(void, .{
+        .{ "if", void },
+        .{ "then", void },
+        .{ "else", void },
+        .{ "elif", void },
+        .{ "fi", void },
+        .{ "do", void },
+        .{ "done", void },
+        .{ "case", void },
+        .{ "esac", void },
+        .{ "while", void },
+        .{ "until", void },
+        .{ "for", void },
+    });
+
     /// name  : NAME        * Apply rule 5 *
     fn cmdName(parser: *Parser) errors!?Word {
         // TODO apply aliases
         // TODO apply keywords
-        return try parser.word(0);
+        const word_size = parser.peekWordSize();
+        if (word_size == 0) {
+            return try parser.word(0);
+        }
+        if (parser.peek(word_size)) |strPeek| {
+            if (keywords.get(strPeek)) |void_value| {
+                _ = void_value; // do nothing
+            } else {
+                var range: Range = undefined;
+                const str = parser.readToken(word_size, &range);
+                return try ast.WordString.create(parser.allocator, .{ .str = str.?, .range = range });
+            }
+        }
+        return null;
     }
 
     /// cmd_suffix  : io_redirect
@@ -359,7 +389,11 @@ pub const Parser = struct {
     fn cmdArgs(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
         var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
-        var io_redir_array = std.ArrayList(IORedir).fromOwnedSlice(parser.allocator, cmd.io_redirs.?);
+        var io_redir_array = if (cmd.io_redirs) |io_redirs|
+            std.ArrayList(IORedir).fromOwnedSlice(parser.allocator, io_redirs)
+        else
+            std.ArrayList(IORedir).init(parser.allocator);
+
         defer io_redir_array.deinit();
 
         while (true) {
@@ -868,8 +902,6 @@ pub const Parser = struct {
     fn peekChar(parser: *Parser) ?u8 {
         return if (parser.peek(1)) |str| str[0] else null;
     }
-
-    // fn compoundCommand(parser: *Parser) !*CompoundCommand {}
 
     /// Returns `null` if `len` plus current position is bigger
     /// than parser source size. If not, returns the string from

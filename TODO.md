@@ -105,6 +105,7 @@ job controller:
 
 misc:
 
+* consider removal of positions
 * priority of execution
 * POSIX mode
 * errors messages equivalent to oksh
