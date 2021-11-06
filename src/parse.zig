@@ -212,9 +212,44 @@ pub const Parser = struct {
     ///                      | compound_command redirect_list  /* Apply rule 9 */
     /// fname                : NAME                            /* Apply rule 8 */
     fn funcDeclaration(parser: *Parser) errors!?Command {
-        // TODO support "function"
-        _ = parser;
-        return null;
+        const name_size = parser.peekNameSize();
+        if (name_size == 0) {
+            return null;
+        } else {
+            var n: usize = name_size + 1;
+            while (parser.peek(n)) |strPeek| : (n += 1) {
+                const char = strPeek[n - 1];
+                if (char == '(') {
+                    break;
+                } else if (!std.ascii.isBlank(char)) {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
+        // TODO check possibility of error
+        const name = parser.readToken(name_size, null).?;
+
+        if (!parser.consumeToken("(", null) or !parser.consumeToken(")", null)) {
+            // TODO have some error
+            return null;
+        }
+        parser.linebreak();
+        if (try parser.compoundCommand()) |cmd| {
+            var io_array = std.ArrayList(IORedir).init(parser.allocator);
+            defer io_array.deinit();
+            while (try parser.IORedirect()) |io_redir| {
+                try io_array.append(io_redir);
+            }
+            if (io_array.items.len > 0) {
+                return try ast.FuncDecl.create(parser.allocator, .{ .name = name, .body = cmd, .io_redirs = io_array.toOwnedSlice() });
+            } else {
+                return try ast.FuncDecl.create(parser.allocator, .{ .name = name, .body = cmd });
+            }
+        } else {
+            return null;
+        }
     }
 
     /// compound_command  : brace_group

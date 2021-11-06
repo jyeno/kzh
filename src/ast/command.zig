@@ -18,12 +18,14 @@ pub const Command = struct {
         SIMPLE_COMMAND,
         CMD_GROUP,
         IF_DECL,
+        FUNC_DECL,
 
         pub fn Type(self: CommandKind) type {
             return switch (self) {
                 .SIMPLE_COMMAND => SimpleCommand,
                 .CMD_GROUP => CmdGroup,
                 .IF_DECL => IfDecl,
+                .FUNC_DECL => FuncDecl,
             };
         }
     };
@@ -158,6 +160,7 @@ pub const CmdGroup = struct {
         }
         allocator.destroy(self);
     }
+
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
@@ -198,6 +201,7 @@ pub const IfDecl = struct {
         if (self.else_decl) |else_part| else_part.deinit(allocator);
         allocator.destroy(self);
     }
+
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
@@ -218,6 +222,44 @@ pub const IfDecl = struct {
         } else {
             std.debug.print("null\n", .{});
         }
+    }
+};
+
+pub const FuncDecl = struct {
+    /// owner
+    name: []const u8,
+    body: Command,
+    io_redirs: ?[]IORedir = null,
+
+    pub fn cmd(self: *FuncDecl) Command {
+        return .{ .impl = self, .kind = .FUNC_DECL, .deinitFn = deinit, .printFn = print };
+    }
+
+    pub fn create(allocator: *mem.Allocator, func_decl: FuncDecl) !Command {
+        const func = try allocator.create(FuncDecl);
+        func.* = func_decl;
+        func.name = try allocator.dupe(u8, func.name);
+        return func.cmd();
+    }
+
+    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+        const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
+        self.body.deinit(allocator);
+        if (self.io_redirs) |io_redirects| {
+            for (io_redirects) |redir| {
+                redir.name.deinit(allocator);
+            }
+            allocator.free(io_redirects);
+        }
+        allocator.free(self.name);
+        allocator.destroy(self);
+    }
+
+    pub fn print(self_void: *c_void, spacing: usize) void {
+        const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
+        std.debug.print(csi ++ "{}C", .{spacing});
+        std.debug.print("func ({s} io_redirs ({s}) cmd:\n", .{ self.name, self.io_redirs });
+        self.body.print(spacing + 2);
     }
 };
 
