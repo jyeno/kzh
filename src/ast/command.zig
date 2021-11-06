@@ -234,6 +234,7 @@ pub const ForDecl = struct {
     has_in: bool,
     list: ?[]Word,
     body: []*CommandList,
+    // TODO add select option
 
     pub fn cmd(self: *ForDecl) Command {
         return .{ .impl = self, .kind = .FOR_DECL, .deinitFn = deinit, .printFn = print };
@@ -361,7 +362,7 @@ pub const FuncDecl = struct {
     pub fn print(self_void: *c_void, spacing: usize) void {
         const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
         std.debug.print(csi ++ "{}C", .{spacing});
-        std.debug.print("func ({s} io_redirs ({s}) cmd:\n", .{ self.name, self.io_redirs });
+        std.debug.print("func {s} io_redirs ({s}) cmd:\n", .{ self.name, self.io_redirs });
         self.body.print(spacing + 2);
     }
 };

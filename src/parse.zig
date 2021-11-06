@@ -205,10 +205,11 @@ pub const Parser = struct {
     ///                      | compound_command redirect_list  /* Apply rule 9 */
     /// fname                : NAME                            /* Apply rule 8 */
     fn funcDeclaration(parser: *Parser) errors!?Command {
+        const has_func_keyword = parser.consumeToken("function");
         const name_size = parser.peekNameSize();
         if (name_size == 0) {
             return null;
-        } else {
+        } else if (!has_func_keyword) {
             var n: usize = name_size + 1;
             while (parser.peek(n)) |strPeek| : (n += 1) {
                 const char = strPeek[n - 1];
@@ -224,7 +225,7 @@ pub const Parser = struct {
         // TODO check possibility of error
         const name = parser.readToken(name_size).?;
 
-        if (!parser.consumeToken("(") or !parser.consumeToken(")")) {
+        if (!has_func_keyword and (!parser.consumeToken("(") or !parser.consumeToken(")"))) {
             // TODO have some error
             return null;
         }
@@ -369,8 +370,6 @@ pub const Parser = struct {
             return try ast.ForDecl.create(parser.allocator, .{ .name = name, .has_in = has_in, .list = for_list, .body = body });
         }
         // TODO error if comes here
-
-        _ = parser;
         return null;
     }
 
@@ -526,8 +525,8 @@ pub const Parser = struct {
         }
     }
 
-    // used only as a way to quickly verify keywords
-    const keywords = std.ComptimeStringMap(void, .{
+    // used only as a way to quickly verify reserved keywords
+    const reserved_keywords = std.ComptimeStringMap(void, .{
         .{ "if", void },
         .{ "then", void },
         .{ "else", void },
@@ -540,18 +539,30 @@ pub const Parser = struct {
         .{ "while", void },
         .{ "until", void },
         .{ "for", void },
+        .{ "function", void },
+        .{ "in", void },
+        .{ "select", void },
+        .{ "time", void },
+        .{ "!", void },
+        .{ "(", void },
+        .{ ")", void },
+        .{ "((", void },
+        .{ "))", void },
+        .{ "[[", void },
+        .{ "]]", void },
+        .{ "{", void },
+        .{ "}", void },
     });
 
     /// name  : NAME        * Apply rule 5 *
     fn cmdName(parser: *Parser) errors!?Word {
         // TODO apply aliases
-        // TODO apply keywords
         const word_size = parser.peekWordSize();
         if (word_size == 0) {
             return try parser.word();
         }
         if (parser.peek(word_size)) |strPeek| {
-            if (keywords.get(strPeek)) |void_value| {
+            if (reserved_keywords.get(strPeek)) |void_value| {
                 _ = void_value; // do nothing
             } else {
                 const str = parser.readToken(word_size);
