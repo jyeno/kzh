@@ -12,18 +12,17 @@ pub usingnamespace command;
 const esc = "\x1B";
 const csi = esc ++ "[";
 
+pub fn create(allocator: *mem.Allocator, comptime T: type, data: T) !*T {
+    const ptr = try allocator.create(T);
+    ptr.* = data;
+    return ptr;
+}
+
 /// Representation of a 'program'
 /// It has a body that contains one or more `CommandList`s.
 pub const Program = struct {
     // TODO make this not a array of pointers
     body: []*CommandList,
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *mem.Allocator, program: Program) !*Program {
-        const prog = try allocator.create(Program);
-        prog.* = program;
-        return prog;
-    }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
@@ -40,13 +39,6 @@ pub const Program = struct {
 pub const CommandList = struct {
     and_or_cmd_list: AndOrCmdList,
     is_async: bool = false,
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *mem.Allocator, command_list: CommandList) !*CommandList {
-        const cmd_list = try allocator.create(CommandList);
-        cmd_list.* = command_list;
-        return cmd_list;
-    }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
@@ -105,13 +97,6 @@ pub const Pipeline = struct {
         };
     }
 
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *mem.Allocator, pipeline: Pipeline) !AndOrCmdList {
-        const node_pipeline = try allocator.create(Pipeline);
-        node_pipeline.* = pipeline;
-        return node_pipeline.andOrCmd();
-    }
-
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
@@ -143,13 +128,6 @@ pub const BinaryOp = struct {
             .kind = .BINARY_OP,
             .deinitFn = deinit,
         };
-    }
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *mem.Allocator, binary_op: BinaryOp) !AndOrCmdList {
-        const binary_operation = try allocator.create(BinaryOp);
-        binary_operation.* = binary_op;
-        return binary_operation.andOrCmd();
     }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one

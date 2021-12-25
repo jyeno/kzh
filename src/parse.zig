@@ -76,7 +76,7 @@ pub const Parser = struct {
             try command_list_array.append(cmd_list);
         }
 
-        return try ast.Program.create(parser.allocator, .{ .body = command_list_array.toOwnedSlice() });
+        return try ast.create(parser.allocator, ast.Program, .{ .body = command_list_array.toOwnedSlice() });
     }
 
     /// list  : list separator_op and_or
@@ -92,7 +92,7 @@ pub const Parser = struct {
                 }
             }
 
-            return try ast.CommandList.create(parser.allocator, command_list);
+            return try ast.create(parser.allocator, ast.CommandList, command_list);
         }
         return null;
     }
@@ -123,6 +123,7 @@ pub const Parser = struct {
 
     const errors = error{
         OutOfMemory,
+        ExpectedToken,
     };
 
     /// and_or  : pipeline
@@ -140,7 +141,7 @@ pub const Parser = struct {
             }
             parser.linebreak();
             if (try parser.andOrCmdList()) |and_or_right| {
-                return try ast.BinaryOp.create(parser.allocator, .{ .left = pl, .right = and_or_right, .kind = bin_op_kind });
+                return (try ast.create(parser.allocator, ast.BinaryOp, .{ .left = pl, .right = and_or_right, .kind = bin_op_kind })).andOrCmd();
             } else {
                 // TODO error if and_or_right command is invalid
                 // or read newline
@@ -177,7 +178,7 @@ pub const Parser = struct {
             }
         }
 
-        return try ast.Pipeline.create(parser.allocator, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang });
+        return (try ast.create(parser.allocator, ast.Pipeline, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang })).andOrCmd();
     }
 
     /// command  : simple_command
@@ -234,9 +235,9 @@ pub const Parser = struct {
                 try io_array.append(io_redir);
             }
             if (io_array.items.len > 0) {
-                return try ast.FuncDecl.create(parser.allocator, .{ .name = name, .body = cmd, .io_redirs = io_array.toOwnedSlice() });
+                return (try ast.create(parser.allocator, ast.FuncDecl, .{ .name = name, .body = cmd, .io_redirs = io_array.toOwnedSlice() })).cmd();
             } else {
-                return try ast.FuncDecl.create(parser.allocator, .{ .name = name, .body = cmd });
+                return (try ast.create(parser.allocator, ast.FuncDecl, .{ .name = name, .body = cmd })).cmd();
             }
         } else {
             return null;
@@ -276,15 +277,11 @@ pub const Parser = struct {
                 return null;
             }
         }
-        if (try parser.compoundList()) |body| {
+        if (try parser.compoundList(closing_char)) |body| {
             // TODO read newline until lchar
-            if (parser.consumeToken(closing_char)) {
-                return try ast.CmdGroup.create(parser.allocator, .{ .body = body, .kind = if (closing_char[0] == '}') .BRACE_GROUP else .SUBSHELL });
-            }
-            for (body) |cmd_list| {
-                cmd_list.deinit(parser.allocator);
-            }
-            parser.allocator.free(body);
+            const cmd_group_kind: ast.CmdGroup.GroupKind = if (closing_char[0] == '}') .BRACE_GROUP else .SUBSHELL;
+            const cmd_group = try ast.create(parser.allocator, ast.CmdGroup, .{ .body = body, .kind = cmd_group_kind });
+            return cmd_group.cmd();
         }
         return null;
     }
@@ -293,26 +290,30 @@ pub const Parser = struct {
     ///                | linebreak term separator
     /// term           : term separator and_or
     ///                | and_or
-    fn compoundList(parser: *Parser) errors!?[]*ast.CommandList {
+    fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]*ast.CommandList {
+        // TODO read until endToken, if it is on the end, read new line
         parser.linebreak();
         var cmd_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
-        defer cmd_list_array.deinit();
+        defer {
+            for (cmd_list_array.items) |cmd_list| {
+                cmd_list.deinit(parser.allocator);
+            }
+            cmd_list_array.deinit();
+        }
 
         while (try parser.andOrCmdList()) |and_or_cmd| {
+            // std.debug.print("\npeek 6: {s}\n", .{parser.peek(6)});
             // TODO here_document
             if (parser.separator()) |sep| {
-                try cmd_list_array.append(try ast.CommandList.create(parser.allocator, .{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&' }));
+                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&' }));
             } else {
-                try cmd_list_array.append(try ast.CommandList.create(parser.allocator, .{ .and_or_cmd_list = and_or_cmd }));
+                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{ .and_or_cmd_list = and_or_cmd }));
             }
         }
         if (cmd_list_array.items.len > 0) {
-            // TODO consider including this deinitialization and two parameters with token
-            // if not token, then deinitializes and return null
-            // for (body) |cmd_list| {
-            //     cmd_list.deinit(parser.allocator);
-            // }
-            // parser.allocator.free(body);
+            if (endToken != null and !parser.consumeToken(endToken.?)) {
+                // return error.ExpectedToken;
+            }
             return cmd_list_array.toOwnedSlice();
         }
         return null;
@@ -368,7 +369,7 @@ pub const Parser = struct {
             }
         };
         if (try parser.doGroup()) |body| {
-            return try ast.ForDecl.create(parser.allocator, .{ .name = name, .has_in = has_in, .list = for_list, .body = body, .is_selection = is_selection });
+            return (try ast.create(parser.allocator, ast.ForDecl, .{ .name = name, .has_in = has_in, .list = for_list, .body = body, .is_selection = is_selection })).cmd();
         }
         // TODO error if comes here
         return null;
@@ -377,18 +378,13 @@ pub const Parser = struct {
     /// do_group : Do compound_list Done   /* Apply rule 6 */
     fn doGroup(parser: *Parser) errors!?[]*ast.CommandList {
         if (!parser.consumeToken("do")) {
-            // TODO have error or read newline
             return null;
         }
-        if (try parser.compoundList()) |body| {
-            if (parser.consumeToken("done")) {
-                return body;
-            }
-            // TODO consider have this logic on compoundList
-            for (body) |cmd_list| {
-                cmd_list.deinit(parser.allocator);
-            }
-            parser.allocator.free(body);
+        if (try parser.compoundList("done")) |body| {
+            // for (body) |cmdd| {
+            //     std.debug.print("\ndone: {}\n\n", .{cmdd});
+            // }
+            return body;
         }
         return null;
     }
@@ -422,13 +418,18 @@ pub const Parser = struct {
             return null;
         }
         // TODO correctly treat errors, readlines if needed
-        if (try parser.compoundList()) |condition| {
-            if (parser.consumeToken("then")) {
-                if (try parser.compoundList()) |body| {
-                    const else_decl = try parser.elseDeclaration();
-                    if (parser.consumeToken("fi")) {
-                        return try ast.IfDecl.create(parser.allocator, .{ .condition = condition, .body = body, .else_decl = else_decl });
-                    }
+        if (try parser.compoundList("then")) |condition| {
+            errdefer {
+                for (condition) |cmd_list| {
+                    cmd_list.deinit(parser.allocator);
+                }
+                parser.allocator.free(condition);
+            }
+            if (try parser.compoundList(null)) |body| {
+                const else_decl = try parser.elseDeclaration();
+
+                if (parser.consumeToken("fi")) {
+                    return (try ast.create(parser.allocator, ast.IfDecl, .{ .condition = condition, .body = body, .else_decl = else_decl })).cmd();
                 }
             }
         }
@@ -441,17 +442,27 @@ pub const Parser = struct {
     fn elseDeclaration(parser: *Parser) errors!?Command {
         // TODO have errors
         if (parser.consumeToken("elif")) {
-            if (try parser.compoundList()) |condition| {
-                if (parser.consumeToken("then")) {
-                    if (try parser.compoundList()) |body| {
-                        const else_decl = try parser.elseDeclaration();
-                        return try ast.IfDecl.create(parser.allocator, .{ .condition = condition, .body = body, .else_decl = else_decl });
+            if (try parser.compoundList("then")) |condition| {
+                errdefer {
+                    for (condition) |cmd_list| {
+                        cmd_list.deinit(parser.allocator);
                     }
+                    parser.allocator.free(condition);
+                }
+                if (try parser.compoundList(null)) |body| {
+                    errdefer {
+                        for (body) |cmd_list| {
+                            cmd_list.deinit(parser.allocator);
+                        }
+                        parser.allocator.free(body);
+                    }
+                    const else_decl = try parser.elseDeclaration();
+                    return (try ast.create(parser.allocator, ast.IfDecl, .{ .condition = condition, .body = body, .else_decl = else_decl })).cmd();
                 }
             }
         } else if (parser.consumeToken("else")) {
-            if (try parser.compoundList()) |body| {
-                return try ast.CmdGroup.create(parser.allocator, .{ .body = body, .kind = .BRACE_GROUP });
+            if (try parser.compoundList(null)) |body| {
+                return (try ast.create(parser.allocator, ast.CmdGroup, .{ .body = body, .kind = .BRACE_GROUP })).cmd();
             }
         }
         return null;
@@ -469,14 +480,18 @@ pub const Parser = struct {
             return null;
         }
 
-        if (try parser.compoundList()) |condition| {
+        if (try parser.compoundList(null)) |condition| {
+            errdefer {
+                for (condition) |cmd_list| {
+                    cmd_list.deinit(parser.allocator);
+                }
+                parser.allocator.free(condition);
+            }
+            // std.debug.print("peek before do group: {s}\n", .{parser.peek(15)});
             if (try parser.doGroup()) |body| {
-                return try ast.LoopDecl.create(parser.allocator, .{ .condition = condition, .body = body, .kind = loop_kind });
+                // std.debug.print("peek end loop: {s}\n", .{parser.peek(9)});
+                return (try ast.create(parser.allocator, ast.LoopDecl, .{ .condition = condition, .body = body, .kind = loop_kind })).cmd();
             }
-            for (condition) |cmd_list| {
-                cmd_list.deinit(parser.allocator);
-            }
-            parser.allocator.free(condition);
         }
         return null;
     }
@@ -492,7 +507,7 @@ pub const Parser = struct {
         cmd.name = try parser.cmdName();
         if (!cmd.isEmpty()) {
             try parser.cmdArgs(&cmd);
-            return try ast.SimpleCommand.create(parser.allocator, cmd);
+            return (try ast.create(parser.allocator, ast.SimpleCommand, cmd)).cmd();
         }
         return null;
     }
@@ -566,7 +581,7 @@ pub const Parser = struct {
                 _ = void_value; // do nothing
             } else {
                 const str = parser.readToken(word_size);
-                return try ast.WordString.create(parser.allocator, .{ .str = str.? });
+                return (try ast.create(parser.allocator, ast.WordString, .{ .str = str.? })).word();
             }
         }
         return null;
@@ -750,7 +765,7 @@ pub const Parser = struct {
         }
 
         if (parser.readToken(n)) |str| {
-            try word_array.append(try ast.WordString.create(parser.allocator, .{ .str = str }));
+            try word_array.append((try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word());
         }
 
         if (word_array.items.len == 0) {
@@ -758,7 +773,7 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
+            return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false })).word();
         }
     }
 
@@ -777,7 +792,7 @@ pub const Parser = struct {
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
-            return try ast.WordCommand.create(parser.allocator, .{ .program = sub_program, .is_back_quoted = back_quotes });
+            return (try ast.create(parser.allocator, ast.WordCommand, .{ .program = sub_program, .is_back_quoted = back_quotes })).word();
         }
 
         return null;
@@ -815,7 +830,7 @@ pub const Parser = struct {
             };
 
             if (parser.readToken(name_size)) |name| {
-                return try ast.WordParameter.create(parser.allocator, .{ .name = name });
+                return (try ast.create(parser.allocator, ast.WordParameter, .{ .name = name })).word();
             }
         }
 
@@ -857,14 +872,14 @@ pub const Parser = struct {
                     }
                 }
                 if (parser.read(n)) |str| { // TODO consider re-usage of wordString
-                    const word_string = try ast.WordString.create(parser.allocator, .{ .str = str });
+                    const word_string = (try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word();
                     try word_array.append(word_string);
                 }
             }
         }
 
         std.debug.assert(parser.readChar().? == '"');
-        return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true });
+        return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true })).word();
     }
 
     fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
@@ -884,7 +899,7 @@ pub const Parser = struct {
 
             if (n > 0) {
                 const str = parser.read(n).?;
-                try word_array.append(try ast.WordString.create(parser.allocator, .{ .str = str }));
+                try word_array.append((try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word());
             } else {
                 break;
             }
@@ -895,7 +910,7 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return try ast.WordList.create(parser.allocator, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false });
+            return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false })).word();
         }
     }
 
@@ -957,7 +972,7 @@ pub const Parser = struct {
 
         std.debug.assert(parser.readChar().? == '}');
 
-        return try ast.WordParameter.create(parser.allocator, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon });
+        return (try ast.create(parser.allocator, ast.WordParameter, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon })).word();
     }
 
     fn wordSingleQuotes(parser: *Parser) !?Word {
@@ -967,7 +982,7 @@ pub const Parser = struct {
         if (parser.readToken(word_size)) |str| {
             std.debug.assert(parser.readChar().? == '\'');
 
-            return try ast.WordString.create(parser.allocator, .{ .str = str, .is_single_quoted = true });
+            return (try ast.create(parser.allocator, ast.WordString, .{ .str = str, .is_single_quoted = true })).word();
         }
         // TODO error or read new line
 
@@ -977,7 +992,7 @@ pub const Parser = struct {
     fn wordString(parser: *Parser) !?Word {
         const len = parser.peekWordSize();
         if (parser.readToken(len)) |str| {
-            return try ast.WordString.create(parser.allocator, .{ .str = str });
+            return (try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word();
         }
         return null;
     }

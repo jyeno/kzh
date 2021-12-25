@@ -63,12 +63,6 @@ pub const SimpleCommand = struct {
         };
     }
 
-    pub fn create(allocator: *mem.Allocator, simple_command: SimpleCommand) !Command {
-        const simple_cmd = try allocator.create(SimpleCommand);
-        simple_cmd.* = simple_command;
-        return simple_cmd.cmd();
-    }
-
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
         if (self.name) |word_name| {
@@ -121,12 +115,6 @@ pub const CmdGroup = struct {
         };
     }
 
-    pub fn create(allocator: *mem.Allocator, cgroup: CmdGroup) !Command {
-        const cmd_group = try allocator.create(CmdGroup);
-        cmd_group.* = cgroup;
-        return cmd_group.cmd();
-    }
-
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
         for (self.body) |cmd_list| {
@@ -147,12 +135,6 @@ pub const IfDecl = struct {
             .kind = .IF_DECL,
             .deinitFn = deinit,
         };
-    }
-
-    pub fn create(allocator: *mem.Allocator, ifdecl: IfDecl) !Command {
-        const if_decl = try allocator.create(IfDecl);
-        if_decl.* = ifdecl;
-        return if_decl.cmd();
     }
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
@@ -185,12 +167,6 @@ pub const ForDecl = struct {
         };
     }
 
-    pub fn create(allocator: *mem.Allocator, fordecl: ForDecl) !Command {
-        const for_decl = try allocator.create(ForDecl);
-        for_decl.* = fordecl;
-        return for_decl.cmd();
-    }
-
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
         if (self.list) |word_list| {
@@ -216,18 +192,13 @@ pub const LoopDecl = struct {
         WHILE,
         UNTIL,
     };
+
     pub fn cmd(self: *LoopDecl) Command {
         return .{
             .impl = self,
             .kind = .LOOP_DECL,
             .deinitFn = deinit,
         };
-    }
-
-    pub fn create(allocator: *mem.Allocator, loopdecl: LoopDecl) !Command {
-        const loop_decl = try allocator.create(LoopDecl);
-        loop_decl.* = loopdecl;
-        return loop_decl.cmd();
     }
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
@@ -258,13 +229,6 @@ pub const FuncDecl = struct {
         };
     }
 
-    pub fn create(allocator: *mem.Allocator, func_decl: FuncDecl) !Command {
-        const func = try allocator.create(FuncDecl);
-        func.* = func_decl;
-        func.name = try allocator.dupe(u8, func.name);
-        return func.cmd();
-    }
-
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
         self.body.deinit(allocator);
@@ -283,12 +247,6 @@ pub const FuncDecl = struct {
 pub const Assign = struct {
     name: []const u8,
     value: ?Word,
-
-    pub fn create(allocator: *mem.Allocator, assign: Assign) !*Assign {
-        const assignment = try allocator.create(Assign);
-        assignment.* = assign;
-        return assignment;
-    }
 };
 
 /// Input/Output Redirection representation
@@ -319,10 +277,4 @@ pub const IORedir = struct {
         /// >|
         IO_CLOBBER,
     };
-
-    pub fn create(allocator: *mem.Allocator, io_redir: IORedir) !*IORedir {
-        const io_redirection = try allocator.create(IORedir);
-        io_redirection.* = io_redir;
-        return io_redirection;
-    }
 };

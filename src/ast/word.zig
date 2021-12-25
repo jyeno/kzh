@@ -54,13 +54,6 @@ pub const WordString = struct {
         return .{ .impl = self, .kind = .STRING, .deinitFn = deinit };
     }
 
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, word_string: WordString) !Word {
-        const word_str = try allocator.create(WordString);
-        word_str.* = word_string;
-        return word_str.word();
-    }
-
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
@@ -112,13 +105,6 @@ pub const WordParameter = struct {
         };
     }
 
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, word_param: WordParameter) !Word {
-        const word_param_expr = try allocator.create(WordParameter);
-        word_param_expr.* = word_param;
-        return word_param_expr.word();
-    }
-
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
@@ -145,13 +131,6 @@ pub const WordCommand = struct {
         };
     }
 
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, word_command: WordCommand) !Word {
-        const command = try allocator.create(WordCommand);
-        command.* = word_command;
-        return command.word();
-    }
-
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
@@ -175,13 +154,6 @@ pub const WordArithm = struct {
         };
     }
 
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, word_arithm: WordArithm) !Word {
-        const word_arithmetic = try allocator.create(WordArithm);
-        word_arithmetic.* = word_arithm;
-        return word_arithmetic.word();
-    }
-
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
@@ -202,13 +174,6 @@ pub const WordList = struct {
             .kind = .LIST,
             .deinitFn = deinit,
         };
-    }
-
-    /// Initializes the memory using given `allocator`
-    pub fn create(allocator: *std.mem.Allocator, word_list: WordList) !Word {
-        const w_list = try allocator.create(WordList);
-        w_list.* = word_list;
-        return w_list.word();
     }
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
