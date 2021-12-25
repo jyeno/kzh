@@ -65,30 +65,31 @@ pub const SimpleCommand = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
+        defer allocator.destroy(self);
+
         if (self.name) |word_name| {
             word_name.deinit(allocator);
         }
         if (self.args) |args| {
+            defer allocator.free(args);
             for (args) |arg| {
                 arg.deinit(allocator);
             }
-            allocator.free(args);
         }
         if (self.assigns) |assignments| {
+            defer allocator.free(assignments);
             for (assignments) |assign| {
                 if (assign.value) |val| {
                     val.deinit(allocator);
                 }
             }
-            allocator.free(assignments);
         }
         if (self.io_redirs) |io_redirects| {
+            defer allocator.free(io_redirects);
             for (io_redirects) |io_redir| {
                 io_redir.name.deinit(allocator);
             }
-            allocator.free(io_redirects);
         }
-        allocator.destroy(self);
     }
 
     /// Checks whenether the simple command is empty, returns true if it
@@ -117,10 +118,14 @@ pub const CmdGroup = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
+        defer {
+            allocator.free(self.body);
+            allocator.destroy(self);
+        }
+
         for (self.body) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.destroy(self);
     }
 };
 
@@ -139,16 +144,19 @@ pub const IfDecl = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
+        defer {
+            allocator.free(self.condition);
+            allocator.free(self.body);
+            allocator.destroy(self);
+        }
+
         for (self.condition) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.free(self.condition);
         for (self.body) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.free(self.body);
         if (self.else_decl) |else_part| else_part.deinit(allocator);
-        allocator.destroy(self);
     }
 };
 
@@ -169,17 +177,19 @@ pub const ForDecl = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
+        defer {
+            allocator.free(self.body);
+            allocator.destroy(self);
+        }
         if (self.list) |word_list| {
+            defer allocator.free(word_list);
             for (word_list) |word| {
                 word.deinit(allocator);
             }
-            allocator.free(word_list);
         }
         for (self.body) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.free(self.body);
-        allocator.destroy(self);
     }
 };
 
@@ -203,15 +213,17 @@ pub const LoopDecl = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
+        defer {
+            allocator.free(self.body);
+            allocator.free(self.condition);
+            allocator.destroy(self);
+        }
         for (self.condition) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.free(self.condition);
         for (self.body) |cmd_list| {
             cmd_list.deinit(allocator);
         }
-        allocator.free(self.body);
-        allocator.destroy(self);
     }
 };
 
@@ -231,15 +243,17 @@ pub const FuncDecl = struct {
 
     pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
         const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
+        defer {
+            allocator.free(self.name);
+            allocator.destroy(self);
+        }
         self.body.deinit(allocator);
         if (self.io_redirs) |io_redirects| {
+            defer allocator.free(io_redirects);
             for (io_redirects) |redir| {
                 redir.name.deinit(allocator);
             }
-            allocator.free(io_redirects);
         }
-        allocator.free(self.name);
-        allocator.destroy(self);
     }
 };
 

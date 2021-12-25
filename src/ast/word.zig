@@ -108,11 +108,12 @@ pub const WordParameter = struct {
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
     pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
-        var self = @ptrCast(*WordParameter, @alignCast(@alignOf(WordParameter), self_void));
+        const self = @ptrCast(*WordParameter, @alignCast(@alignOf(WordParameter), self_void));
+        defer allocator.destroy(self);
+
         if (self.arg) |word_arg| {
             word_arg.deinit(allocator);
         }
-        allocator.destroy(self);
     }
 };
 
