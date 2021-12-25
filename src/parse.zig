@@ -133,9 +133,9 @@ pub const Parser = struct {
         if (try parser.pipeline()) |pl| {
             var bin_op_kind: ast.BinaryOp.BinaryOpKind = undefined;
             if (parser.isOperator(.AND)) {
-                bin_op_kind = ast.BinaryOp.BinaryOpKind.AND;
+                bin_op_kind = .AND;
             } else if (parser.isOperator(.OR)) {
-                bin_op_kind = ast.BinaryOp.BinaryOpKind.OR;
+                bin_op_kind = .OR;
             } else {
                 return pl;
             }
@@ -172,9 +172,6 @@ pub const Parser = struct {
             parser.linebreak();
             if (try parser.command()) |cmd| {
                 try command_array.append(cmd);
-            } else {
-                // TODO maybe have an error, see if needed
-                break;
             }
         }
 
@@ -302,7 +299,6 @@ pub const Parser = struct {
         }
 
         while (try parser.andOrCmdList()) |and_or_cmd| {
-            // std.debug.print("\npeek 6: {s}\n", .{parser.peek(6)});
             // TODO here_document
             if (parser.separator()) |sep| {
                 try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&' }));
@@ -487,9 +483,7 @@ pub const Parser = struct {
                 }
                 parser.allocator.free(condition);
             }
-            // std.debug.print("peek before do group: {s}\n", .{parser.peek(15)});
             if (try parser.doGroup()) |body| {
-                // std.debug.print("peek end loop: {s}\n", .{parser.peek(9)});
                 return (try ast.create(parser.allocator, ast.LoopDecl, .{ .condition = condition, .body = body, .kind = loop_kind })).cmd();
             }
         }
@@ -739,11 +733,15 @@ pub const Parser = struct {
         var n: usize = 0;
         while (parser.peek(n + 1)) |strPeek| {
             const currentChar = strPeek[n];
+            // TODO current problem, if current char is not the first of the index, the
+            // behavior is wrong, at ' " {   and the first character is not them, then
+            // they should only be appended at the current string
+            // TODO consider if should remove the } from here
             const word_value: ?Word = switch (currentChar) {
                 '\n', ')', '}' => break,
                 '$' => try parser.wordDollar(),
                 '`' => try parser.wordCommand(true),
-                '\'' => try parser.wordSingleQuotes(),
+                '\'' => try parser.wordSingleQuotes(), // TODO string'mergeWithquotes'
                 '"' => try parser.wordDoubleQuotes(),
                 else => null,
             };
@@ -764,8 +762,9 @@ pub const Parser = struct {
             }
         }
 
-        if (parser.readToken(n)) |str| {
+        if (parser.read(n)) |str| {
             try word_array.append((try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word());
+            parser.resetCurrentSymbol();
         }
 
         if (word_array.items.len == 0) {
@@ -838,11 +837,13 @@ pub const Parser = struct {
         return null;
     }
 
+    // TODO fix sequential double quotes seems to not work
     fn wordDoubleQuotes(parser: *Parser) !?Word {
         std.debug.assert(parser.readChar().? == '"');
 
         var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
+
         while (parser.peekChar()) |currentChar| {
             const word_value: ?Word = switch (currentChar) {
                 '"' => break,
@@ -1056,6 +1057,9 @@ pub const Parser = struct {
     /// current position is bigger than parser source size
     /// See `read`
     fn peek(parser: *Parser, len: usize) ?[]const u8 {
+        if (len == 0) {
+            return null;
+        }
         const begin = parser.currentPos;
         const end = begin + len;
         if (end > parser.source.len) return null;
@@ -1113,11 +1117,14 @@ pub const Parser = struct {
             }
             _ = parser.readToken(1);
         } else {
-            const word_str = parser.peek(parser.peekWordSize()).?;
-            if (!mem.eql(u8, str, word_str)) {
+            if (parser.peek(parser.peekWordSize())) |word_str| {
+                if (!mem.eql(u8, str, word_str)) {
+                    return false;
+                }
+                _ = parser.readToken(str.len);
+            } else {
                 return false;
             }
-            _ = parser.readToken(str.len);
         }
 
         return true;
@@ -1279,4 +1286,5 @@ test "Parse all tests" {
     _ = @import("parse/test_command.zig");
     _ = @import("parse/test_program.zig");
     _ = @import("parse/test_word.zig");
+    _ = @import("parse/test_scripts.zig");
 }

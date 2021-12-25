@@ -39,10 +39,11 @@ fn init(allocator: *std.mem.Allocator, interative_mode: bool) !void {
 /// kzh main loop, used when the program is run in interactive mode
 fn kzhLoop(alloca: *std.mem.Allocator) !void {
     var job_ctl = jobs.global_controller;
+    var last_status: u8 = 0;
     while (true) {
         var algo: [256]u8 = undefined;
         const stdin = std.io.getStdIn().reader();
-        if (job_ctl.last_status == 0) {
+        if (last_status == 0) {
             std.debug.print("> ", .{});
         } else {
             std.debug.print(">> ", .{});
@@ -55,8 +56,13 @@ fn kzhLoop(alloca: *std.mem.Allocator) !void {
             };
             defer program.deinit(alloca);
 
+            // TODO remove, for debug only
+            if (std.mem.eql(u8, input, "exit")) {
+                break;
+            }
+
             // TODO consider, should just use try here or should errors be treated inside of the job_ctl?
-            try job_ctl.run(program);
+            last_status = try job_ctl.run(program);
             // break;
         }
     }

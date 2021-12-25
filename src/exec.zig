@@ -14,7 +14,52 @@ const printError = std.debug.print;
 
 const BoundedArray = std.BoundedArray([]const u8, 60);
 
-pub fn simpleCommand(simple_command: *ast.SimpleCommand) !u8 {
+pub fn program(allocator: *std.mem.Allocator, prog: *ast.Program) !u8 {
+    var last_status: u8 = 0;
+    for (prog.body) |cmd_list| {
+        last_status = try andOrCmd(allocator, cmd_list.and_or_cmd_list);
+    }
+    return last_status;
+}
+
+fn andOrCmd(allocator: *std.mem.Allocator, and_or_cmd: ast.AndOrCmdList) anyerror!u8 {
+    return switch (and_or_cmd.kind) {
+        .PIPELINE => try pipeline(allocator, and_or_cmd.cast(.PIPELINE).?),
+        .BINARY_OP => blk: {
+            const binary_op = and_or_cmd.cast(.BINARY_OP).?;
+            var last_status = try andOrCmd(allocator, binary_op.left);
+            if ((binary_op.kind == .AND and last_status == 0) or
+                (binary_op.kind == .OR and last_status != 0))
+            {
+                break :blk try andOrCmd(allocator, binary_op.right);
+            }
+            break :blk last_status;
+        },
+    };
+}
+
+fn pipeline(allocator: *std.mem.Allocator, pline: *ast.Pipeline) !u8 {
+    var last_status: u8 = 0;
+    if (pline.commands.len == 1) {
+        last_status = try command(allocator, pline.commands[0]);
+    } else {
+        // TODO implement
+        unreachable;
+    }
+    if (pline.has_bang) {
+        last_status = if (last_status != 0) 0 else 1;
+    }
+    return last_status;
+}
+
+fn command(allocator: *std.mem.Allocator, cmd: Command) !u8 {
+    return switch (cmd.kind) {
+        .SIMPLE_COMMAND => try simpleCommand(allocator, cmd.cast(.SIMPLE_COMMAND).?),
+        else => unreachable,
+    };
+}
+
+pub fn simpleCommand(allocator: *std.mem.Allocator, simple_command: *ast.SimpleCommand) !u8 {
     if (simple_command.name) |word_name| {
         var argv: BoundedArray = undefined;
         if (simple_command.args) |args| {
@@ -28,12 +73,12 @@ pub fn simpleCommand(simple_command: *ast.SimpleCommand) !u8 {
             argv = try BoundedArray.init(1);
         }
         argv.set(0, word_name.cast(Word.WordKind.STRING).?.str);
-        return try runProcess(argv.slice(), simple_command.io_redirs);
+        return try runProcess(allocator, argv.slice(), simple_command.io_redirs);
     }
     unreachable;
 }
 
-fn runProcess(argv: [][]const u8, io_redirs: ?[]IORedir) !u8 {
+fn runProcess(allocator: *std.mem.Allocator, argv: [][]const u8, io_redirs: ?[]IORedir) !u8 {
     if (builtins.get(argv[0])) |builtin| {
         // TODO support redir on builtins
         return builtin(argv);
@@ -43,14 +88,14 @@ fn runProcess(argv: [][]const u8, io_redirs: ?[]IORedir) !u8 {
     // var buffer: [4096]u8 = undefined;
     // var fba = std.heap.FixedBufferAllocator.init(&buffer);
     // const allocator = &fba.allocator;
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
-    gpa.setRequestedMemoryLimit(5000);
+    // var gpa = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    // gpa.setRequestedMemoryLimit(5000);
 
-    const allocator = &gpa.allocator;
-    defer {
-        const leaked = gpa.deinit();
-        if (leaked) std.debug.print("Memory leaked.\n", .{});
-    }
+    // const allocator = &gpa.allocator;
+    // defer {
+    //     const leaked = gpa.deinit();
+    //     if (leaked) std.debug.print("Memory leaked.\n", .{});
+    // }
 
     var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, argv.len + 1);
     defer {

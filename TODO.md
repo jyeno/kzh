@@ -1,5 +1,10 @@
 TODO in no particular order
 
+init:
+
+* proper initializing
+* have option to only run a script/command
+
 parser:
 
 * have parser errors treated
@@ -98,6 +103,7 @@ job controller:
 
 misc:
 
+* check memory leaks
 * consider removal of positions
 * priority of execution
 * POSIX mode
