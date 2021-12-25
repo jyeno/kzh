@@ -4,11 +4,99 @@ const mem = std.mem;
 const Parser = @import("../parse.zig").Parser;
 const ast = @import("../ast.zig");
 
-test "SubShell" {
+test "Parse Brace Group and SubShell" {
+    {
+        const command_string = "{ echo hi; echo something else; }";
+        var parser = Parser.init(testing.allocator, command_string);
+        const program = try parser.parse();
+        defer program.deinit(testing.allocator);
+
+        const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
+        try testing.expect(pipeline.commands.len == 1);
+
+        try testing.expect(pipeline.commands[0].kind == .CMD_GROUP);
+        try testing.expect(pipeline.commands[0].cast(.CMD_GROUP).?.body.len == 2);
+    }
+    {
+        const command_string =
+            \\(
+            \\  echo hi
+            \\  true; print "hello world"
+            \\)
+        ;
+        var parser = Parser.init(testing.allocator, command_string);
+        const program = try parser.parse();
+        defer program.deinit(testing.allocator);
+
+        const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
+        try testing.expect(pipeline.commands.len == 1);
+
+        try testing.expect(pipeline.commands[0].kind == .CMD_GROUP);
+        try testing.expect(pipeline.commands[0].cast(.CMD_GROUP).?.body.len == 3);
+    }
+}
+
+test "Parse For Declaration" {
     // TODO
 }
 
-test "Group Command" {
+test "Parse Func Declaration" {
+    // TODO
+}
+
+test "Parse Case Declaration" {
+    // TODO
+}
+
+test "Parse Loop Declaration" {
+    {
+        const command_string =
+            \\while true
+            \\do
+            \\  printf \"hello world\n\"
+            \\  sleep 1
+            \\done
+        ;
+        var parser = Parser.init(testing.allocator, command_string);
+        const program = try parser.parse();
+        defer program.deinit(testing.allocator);
+
+        const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
+        try testing.expect(pipeline.commands.len == 1);
+
+        try testing.expect(pipeline.commands[0].kind == .LOOP_DECL);
+        const loop_decl = pipeline.commands[0].cast(.LOOP_DECL).?;
+        try testing.expect(loop_decl.kind == .WHILE);
+        try testing.expect(loop_decl.condition.len == 1);
+        try testing.expect(loop_decl.body.len == 2);
+    }
+    {
+        const command_string =
+            \\until false; do
+            \\  print hello wo
+            \\  print r
+            \\  print l
+            \\  print d
+            \\  print \n
+            \\  sleep 1
+            \\done
+        ;
+        var parser = Parser.init(testing.allocator, command_string);
+        const program = try parser.parse();
+        defer program.deinit(testing.allocator);
+
+        const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
+        try testing.expect(pipeline.commands.len == 1);
+
+        try testing.expect(pipeline.commands[0].kind == .LOOP_DECL);
+        const loop_decl = pipeline.commands[0].cast(.LOOP_DECL).?;
+        try testing.expect(loop_decl.kind == .UNTIL);
+        try testing.expect(loop_decl.condition.len == 1);
+        try testing.expect(loop_decl.body.len == 6);
+    }
+}
+
+test "Parse If Declaration" {
     // TODO
 }
 
