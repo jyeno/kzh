@@ -2,25 +2,17 @@ TODO in no particular order
 
 parser:
 
-* reserved words
 * have parser errors treated
 * command types:
-  - functions
-  - brace groups
-  - subshell
-  - for loops
-  - while loops
-  - if else statements
+  - case
 * parse here documents
 * line continuation (PS2)
 * word arithmetic
-* analyze behavior of wordList
 * do temporary storage to not do a bunch of small allocations, scratch buffer? see https://github.com/ziglang/zig/pull/10079/files
 * async pipe (|&)
 
 AST:
 
-* analyze if positions should be used
 * command types
 
 line read:
@@ -58,6 +50,7 @@ exec:
   - for loops
   - while loops
   - if else statements
+  - case
 
 symbol table:
 
