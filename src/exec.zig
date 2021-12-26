@@ -60,6 +60,7 @@ fn command(allocator: *std.mem.Allocator, cmd: Command) anyerror!u8 {
     return switch (cmd.kind) {
         .SIMPLE_COMMAND => try simpleCommand(allocator, cmd.cast(.SIMPLE_COMMAND).?),
         .CMD_GROUP => try cmdGroup(allocator, cmd.cast(.CMD_GROUP).?),
+        .IF_DECL => try ifDecl(allocator, cmd.cast(.IF_DECL).?),
         else => unreachable,
     };
 }
@@ -69,6 +70,16 @@ fn cmdGroup(allocator: *std.mem.Allocator, cmd_group: *ast.CmdGroup) !u8 {
         .BRACE_GROUP => try commandListArray(allocator, cmd_group.body),
         else => unreachable, // TODO subshell
     };
+}
+
+fn ifDecl(allocator: *std.mem.Allocator, if_decl: *ast.IfDecl) !u8 {
+    const result = try commandListArray(allocator, if_decl.condition);
+    if (result == 0) {
+        return try commandListArray(allocator, if_decl.body);
+    } else if (if_decl.else_decl) |else_decl| {
+        return try command(allocator, else_decl);
+    }
+    return 0;
 }
 
 pub fn simpleCommand(allocator: *std.mem.Allocator, simple_command: *ast.SimpleCommand) !u8 {
