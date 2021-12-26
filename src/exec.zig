@@ -15,8 +15,12 @@ const printError = std.debug.print;
 const BoundedArray = std.BoundedArray([]const u8, 60);
 
 pub fn program(allocator: *std.mem.Allocator, prog: *ast.Program) !u8 {
+    return try commandListArray(allocator, prog.body);
+}
+
+fn commandListArray(allocator: *std.mem.Allocator, cmd_list_array: []*ast.CommandList) !u8 {
     var last_status: u8 = 0;
-    for (prog.body) |cmd_list| {
+    for (cmd_list_array) |cmd_list| {
         last_status = try andOrCmd(allocator, cmd_list.and_or_cmd_list);
     }
     return last_status;
@@ -52,10 +56,18 @@ fn pipeline(allocator: *std.mem.Allocator, pline: *ast.Pipeline) !u8 {
     return last_status;
 }
 
-fn command(allocator: *std.mem.Allocator, cmd: Command) !u8 {
+fn command(allocator: *std.mem.Allocator, cmd: Command) anyerror!u8 {
     return switch (cmd.kind) {
         .SIMPLE_COMMAND => try simpleCommand(allocator, cmd.cast(.SIMPLE_COMMAND).?),
+        .CMD_GROUP => try cmdGroup(allocator, cmd.cast(.CMD_GROUP).?),
         else => unreachable,
+    };
+}
+
+fn cmdGroup(allocator: *std.mem.Allocator, cmd_group: *ast.CmdGroup) !u8 {
+    return switch (cmd_group.kind) {
+        .BRACE_GROUP => try commandListArray(allocator, cmd_group.body),
+        else => unreachable, // TODO subshell
     };
 }
 
