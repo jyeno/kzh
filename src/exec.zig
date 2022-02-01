@@ -2,6 +2,7 @@ const std = @import("std");
 const os = std.os;
 const builtins = @import("builtins.zig").builtins;
 const symtab = @import("symtab.zig");
+const jobs = @import("jobs.zig");
 const ast = @import("ast.zig");
 const AndOrCmdList = ast.AndOrCmdList;
 const AndOrCmdListKind = AndOrCmdList.AndOrCmdListKind;
@@ -14,41 +15,98 @@ const printError = std.debug.print;
 
 const BoundedArray = std.BoundedArray([]const u8, 60);
 
-pub fn program(allocator: *std.mem.Allocator, prog: *ast.Program) !u8 {
-    return try commandListArray(allocator, prog.body);
+pub fn program(ctl: *jobs.JobController, prog: *ast.Program) !u32 {
+    return try commandListArray(ctl, prog.body);
 }
 
-fn commandListArray(allocator: *std.mem.Allocator, cmd_list_array: []*ast.CommandList) !u8 {
-    var last_status: u8 = 0;
+fn commandListArray(ctl: *jobs.JobController, cmd_list_array: []*ast.CommandList) !u32 {
+    // TODO improve and fix behaviour
+    var last_status: u32 = 0;
     for (cmd_list_array) |cmd_list| {
-        last_status = try andOrCmd(allocator, cmd_list.and_or_cmd_list);
+        last_status = try andOrCmd(ctl, cmd_list.and_or_cmd_list);
     }
     return last_status;
 }
 
-fn andOrCmd(allocator: *std.mem.Allocator, and_or_cmd: ast.AndOrCmdList) anyerror!u8 {
+fn andOrCmd(ctl: *jobs.JobController, and_or_cmd: ast.AndOrCmdList) anyerror!u32 {
     return switch (and_or_cmd.kind) {
-        .PIPELINE => try pipeline(allocator, and_or_cmd.cast(.PIPELINE).?),
+        .PIPELINE => try pipeline(ctl, and_or_cmd.cast(.PIPELINE).?),
         .BINARY_OP => blk: {
             const binary_op = and_or_cmd.cast(.BINARY_OP).?;
-            var last_status = try andOrCmd(allocator, binary_op.left);
+            var last_status = try andOrCmd(ctl, binary_op.left);
             if ((binary_op.kind == .AND and last_status == 0) or
                 (binary_op.kind == .OR and last_status != 0))
             {
-                break :blk try andOrCmd(allocator, binary_op.right);
+                break :blk try andOrCmd(ctl, binary_op.right);
             }
             break :blk last_status;
         },
     };
 }
 
-fn pipeline(allocator: *std.mem.Allocator, pline: *ast.Pipeline) !u8 {
-    var last_status: u8 = 0;
+fn pipeline(ctl: *jobs.JobController, pline: *ast.Pipeline) !u32 {
+    std.debug.assert(pline.commands.len > 0);
+    var last_status: u32 = 0;
     if (pline.commands.len == 1) {
-        last_status = try command(allocator, pline.commands[0]);
+        last_status = try command(ctl, pline.commands[0]);
     } else {
-        // TODO implement
-        unreachable;
+        // TODO consider non-allocating data, also if jobs.Process should be pointer or not
+        // TODO solve memory leak
+        var child_ctl = ctl.*;
+        var job = try jobs.Job.initCapacity(&child_ctl, pline.commands.len);
+        var next_stdin: ?os.fd_t = null;
+        var cur_stdin: ?os.fd_t = null;
+        var cur_stdout: ?os.fd_t = null;
+        for (pline.commands) |cmd, index| {
+            const is_last_cmd = index == (pline.commands.len - 1);
+            if (!is_last_cmd) {
+                std.debug.assert(next_stdin == null and cur_stdout == null);
+                const fds = try os.pipe();
+                next_stdin = fds[0];
+                cur_stdout = fds[1];
+            }
+            const pid = try os.fork();
+            if (pid == 0) {
+                if (index > 0) {
+                    if (next_stdin) |stdin| {
+                        os.close(stdin);
+                    }
+                    if (cur_stdin.? != os.STDIN_FILENO) {
+                        os.dup2(cur_stdin.?, os.STDIN_FILENO) catch {
+                            os.exit(127);
+                        };
+                        os.close(cur_stdin.?);
+                    }
+                }
+
+                if (!is_last_cmd and cur_stdout.? != os.STDOUT_FILENO) {
+                    os.dup2(cur_stdout.?, os.STDOUT_FILENO) catch {
+                        os.exit(127);
+                    };
+                    os.close(cur_stdout.?);
+                }
+
+                const result = command(&child_ctl, cmd) catch {
+                    os.exit(127);
+                };
+
+                os.exit(@intCast(u8, result));
+            }
+            const proc = jobs.Process.init(pid);
+            try job.addProcess(proc);
+
+            if (cur_stdin) |stdin| {
+                os.close(stdin);
+            }
+            if (cur_stdout) |stdout| {
+                os.close(stdout);
+                cur_stdout = null;
+            }
+            cur_stdin = next_stdin;
+            next_stdin = null;
+        }
+
+        last_status = job.waitProcesses();
     }
     if (pline.has_bang) {
         last_status = if (last_status != 0) 0 else 1;
@@ -56,57 +114,158 @@ fn pipeline(allocator: *std.mem.Allocator, pline: *ast.Pipeline) !u8 {
     return last_status;
 }
 
-fn command(allocator: *std.mem.Allocator, cmd: Command) anyerror!u8 {
+const ExpandedWordArray = std.ArrayList([]const u8);
+
+fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
     return switch (cmd.kind) {
-        .SIMPLE_COMMAND => try simpleCommand(allocator, cmd.cast(.SIMPLE_COMMAND).?),
-        .CMD_GROUP => try cmdGroup(allocator, cmd.cast(.CMD_GROUP).?),
-        .IF_DECL => try ifDecl(allocator, cmd.cast(.IF_DECL).?),
-        else => unreachable,
-    };
-}
+        .SIMPLE_COMMAND => cmd: {
+            const simple_command = cmd.cast(.SIMPLE_COMMAND).?;
+            defer ctl.restoreFds();
 
-fn cmdGroup(allocator: *std.mem.Allocator, cmd_group: *ast.CmdGroup) !u8 {
-    return switch (cmd_group.kind) {
-        .BRACE_GROUP => try commandListArray(allocator, cmd_group.body),
-        else => unreachable, // TODO subshell
-    };
-}
-
-fn ifDecl(allocator: *std.mem.Allocator, if_decl: *ast.IfDecl) !u8 {
-    const result = try commandListArray(allocator, if_decl.condition);
-    if (result == 0) {
-        return try commandListArray(allocator, if_decl.body);
-    } else if (if_decl.else_decl) |else_decl| {
-        return try command(allocator, else_decl);
-    }
-    return 0;
-}
-
-pub fn simpleCommand(allocator: *std.mem.Allocator, simple_command: *ast.SimpleCommand) !u8 {
-    if (simple_command.name) |word_name| {
-        var argv: BoundedArray = undefined;
-        if (simple_command.args) |args| {
-            argv = try BoundedArray.init(args.len + 1);
-            for (args) |arg, i| {
-                if (arg.cast(.STRING)) |a| {
-                    argv.set(i + 1, a.str); // TODO consider others wordkinds
+            if (simple_command.name) |word_name| {
+                if (simple_command.io_redirs) |io_redirections| {
+                    try applyProcRedirects(ctl, io_redirections);
+                }
+                var argv = try ExpandedWordArray.initCapacity(ctl.allocator, 1);
+                if (simple_command.args) |args| {
+                    _ = try expandWord(ctl, word_name, &argv);
+                    try argv.ensureUnusedCapacity(args.len);
+                    for (args) |word_arg| {
+                        _ = try expandWord(ctl, word_arg, &argv);
+                    }
+                } else {
+                    _ = try expandWord(ctl, word_name, &argv);
+                }
+                break :cmd try runProcess(ctl, argv.toOwnedSlice());
+            }
+            unreachable; // TODO include others possibilities of a simple command
+        },
+        .CMD_GROUP => cmd: {
+            const cmd_group = cmd.cast(.CMD_GROUP).?;
+            switch (cmd_group.kind) {
+                .BRACE_GROUP => break :cmd try commandListArray(ctl, cmd_group.body),
+                .SUBSHELL => {
+                    const pid = try os.fork();
+                    if (pid == 0) {
+                        const result = commandListArray(ctl, cmd_group.body) catch 127;
+                        os.exit(@intCast(u8, result));
+                    }
+                    const result = os.waitpid(pid, 0).status;
+                    break :cmd result; // TODO add shell process
+                },
+            }
+        },
+        .FOR_DECL => {
+            unreachable;
+        },
+        .CASE_DECL => {
+            unreachable;
+        },
+        .LOOP_DECL => cmd: {
+            // TODO integrate with ctl (jobcontroller)
+            var result: u32 = 0;
+            const loop_decl = cmd.cast(.LOOP_DECL).?;
+            while (true) {
+                const cond = try commandListArray(ctl, loop_decl.condition);
+                if ((cond == 0 and loop_decl.kind == .WHILE) or
+                    (cond != 0 and loop_decl.kind == .UNTIL))
+                {
+                    result = try commandListArray(ctl, loop_decl.body);
+                } else {
+                    break :cmd result;
                 }
             }
-        } else {
-            argv = try BoundedArray.init(1);
-        }
-        argv.set(0, word_name.cast(Word.WordKind.STRING).?.str);
-        return try runProcess(allocator, argv.slice(), simple_command.io_redirs);
-    }
-    unreachable;
+        },
+        .IF_DECL => cmd: {
+            const if_decl = cmd.cast(.IF_DECL).?;
+            const result = try commandListArray(ctl, if_decl.condition);
+            if (result == 0) {
+                break :cmd try commandListArray(ctl, if_decl.body);
+            } else if (if_decl.else_decl) |else_decl| {
+                break :cmd try command(ctl, else_decl);
+            } else {
+                break :cmd 0;
+            }
+        },
+        .FUNC_DECL => cmd: {
+            const func_decl = cmd.cast(.FUNC_DECL).?;
+            try ctl.putFunc(func_decl.name, func_decl.body);
+            break :cmd 0;
+        },
+    };
 }
 
-fn runProcess(allocator: *std.mem.Allocator, argv: [][]const u8, io_redirs: ?[]IORedir) !u8 {
-    if (builtins.get(argv[0])) |builtin| {
-        // TODO support redir on builtins
-        return builtin(argv);
+// have a word-kinda function that returns a []const u8, and also receives a u32 opcional pointer
+// to store some result if needed, then I should have a function that can evaluates more than one char at time
+
+fn expandWord(ctl: *jobs.JobController, word_arg: ast.Word, fields: *ExpandedWordArray) !u32 {
+    // TODO evalTilde
+    // TODO split fields
+    // TODO expand pathnames
+    // try splitFields(fields, word_ref);
+    _ = fields;
+    var result: u32 = 0;
+    const str = try execWord(ctl, word_arg, false, &result);
+    try fields.append(str);
+    return result;
+}
+
+fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, is_double_quoted: bool, result: *u32) ![]const u8 {
+    _ = is_double_quoted;
+    return switch (word_arg.kind) {
+        .STRING => word_arg.cast(.STRING).?.str,
+        .LIST => unreachable,
+        .PARAMETER => unreachable,
+        .COMMAND => str: {
+            const word_cmd = word_arg.cast(.COMMAND).?;
+            const fds = try os.pipe();
+            errdefer {
+                os.close(fds[0]);
+                os.close(fds[1]);
+            }
+            const pid = try os.fork();
+            if (pid == 0) {
+                os.close(fds[0]);
+                if (fds[1] != os.STDOUT_FILENO) {
+                    try os.dup2(fds[1], os.STDOUT_FILENO);
+                    os.close(fds[1]);
+                }
+                // TODO implement traps
+                if (word_cmd.program) |prog| {
+                    const progResult = try ctl.run(prog);
+                    os.exit(@intCast(u8, progResult));
+                }
+                os.exit(0);
+            }
+            os.close(fds[1]);
+
+            var output_handle = std.fs.File{ .handle = fds[0] };
+            // TODO improve it
+            var data = try output_handle.reader().readUntilDelimiterOrEofAlloc(ctl.allocator, 0, 4096);
+            if (data) |buffer| {
+                const trimmedBuf = std.mem.trimRight(u8, buffer, "\n");
+                break :str trimmedBuf;
+                // const word_str = try ast.create(ctl.allocator, ast.WordString, .{ .str = trimmedBuf });
+                // word_arg.* = word_str.word();
+            }
+            result.* = os.waitpid(pid, 0).status;
+            break :str "";
+        },
+        .ARITHMETIC => unreachable,
+    };
+}
+
+fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
+    defer ctl.allocator.free(argv);
+    std.debug.print("argv: {s}\n", .{argv});
+
+    if (ctl.getFunc(argv[0])) |func_cmd| {
+        return try command(ctl, func_cmd);
+    } else if (builtins.get(argv[0])) |builtin| {
+        return builtin(ctl, argv);
     }
     // TODO analize a way to not allocate too much memory
+    // TODO use fallbackallocator :)
 
     // var buffer: [4096]u8 = undefined;
     // var fba = std.heap.FixedBufferAllocator.init(&buffer);
@@ -120,16 +279,20 @@ fn runProcess(allocator: *std.mem.Allocator, argv: [][]const u8, io_redirs: ?[]I
     //     if (leaked) std.debug.print("Memory leaked.\n", .{});
     // }
 
-    var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, argv.len + 1);
+    // TODO change whole thing, maybe use 0 terminated strings, has it would evade more allocations here
+    var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(ctl.allocator, argv.len);
     defer {
-        for (argvZ.items) |arg| {
-            if (arg) |value| allocator.destroy(value);
+        var i: usize = 0;
+        while (i < argvZ.items.len) : (i += 1) {
+            if (argvZ.items[i]) |argZ| {
+                ctl.allocator.destroy(argZ);
+            }
         }
         argvZ.deinit();
     }
 
     for (argv) |arg| {
-        argvZ.appendAssumeCapacity(try std.mem.dupeZ(allocator, u8, arg));
+        argvZ.appendAssumeCapacity(try ctl.allocator.dupeZ(u8, arg));
     }
 
     const pid = std.os.fork() catch |err| {
@@ -140,31 +303,12 @@ fn runProcess(allocator: *std.mem.Allocator, argv: [][]const u8, io_redirs: ?[]I
         return 1;
     };
     if (pid == 0) {
-        // TODO put it on other place
-        if (io_redirs) |io_redirections| {
-            for (io_redirections) |io_redir| {
-                var source_fd: os.fd_t = undefined;
-                const dest_fd = processRedirection(io_redir, &source_fd) catch |err| {
-                    switch (err) {
-                        error.AccessDenied => printError("kzh: cannot create {s}: Permission denied\n", .{io_redir.name.cast(.STRING).?.str}), // TODO word string function
-                        else => printError("kzh: {}", .{err}),
-                    }
-                    os.exit(1);
-                };
-                if (source_fd == dest_fd) continue;
-                if (dest_fd == -1) {
-                    printError("something wrong happened, better handling in the futureTM\n", .{});
-                }
-                os.dup2(dest_fd, source_fd) catch |err| {
-                    printError("something wrong happened dup2, {}\n", .{err});
-                };
-            }
-        }
         const args = try argvZ.toOwnedSliceSentinel(null);
-        defer allocator.free(args);
+        defer ctl.allocator.free(args);
 
-        const envp = try symtab.global_symtab.dupeZ(allocator);
-        defer allocator.free(envp);
+        // use symtab on ctl
+        const envp = try ctl.env_vars.dupeZ(ctl.allocator);
+        defer ctl.allocator.free(envp);
 
         switch (std.os.execvpeZ(args[0].?, args, envp)) {
             error.FileNotFound => printError("kzh: {s}: not found\n", .{argv[0]}),
@@ -177,31 +321,26 @@ fn runProcess(allocator: *std.mem.Allocator, argv: [][]const u8, io_redirs: ?[]I
         // printError("\nreturned process: {}\n", .{ret});
         return 0; // TODO figure out how to handle error of execution
     }
-    return 1;
 }
 
-fn processRedirection(io_redir: IORedir, source_fd: *os.fd_t) !os.fd_t {
-    const filename = io_redir.name.cast(.STRING).?.str; // support other word types
+fn applyProcRedirects(ctl: *jobs.JobController, io_redirs: []IORedir) !void {
+    var arr = try std.ArrayList(jobs.SavedIOFd).initCapacity(ctl.allocator, io_redirs.len);
+    defer arr.deinit();
 
-    var dest_fd: os.fd_t = switch (io_redir.op) {
-        .IO_LESS => try os.open(filename, os.O.CLOEXEC | os.O.RDONLY, 0),
-        // .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => createHereDocumentFd TODO
-        .IO_GREAT, .IO_CLOBBER => try os.open(filename, os.O.WRONLY | os.system.O.CREAT | os.O.TRUNC, 0o644),
-        .IO_DOUBLE_GREAT => try os.open(filename, os.O.WRONLY | os.O.CREAT | os.O.APPEND, 0o644),
-        .IO_LESS_AND, .IO_GREAT_AND => std.fmt.parseInt(os.fd_t, filename, 10) catch -1,
-        else => -1,
-    };
-    if (io_redir.io_num) |io_number| {
-        source_fd.* = io_number;
-    } else {
-        switch (io_redir.op) {
-            .IO_LESS, .IO_LESS_AND, .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => source_fd.* = os.STDIN_FILENO,
-            .IO_LESS_GREAT, .IO_GREAT, .IO_DOUBLE_GREAT, .IO_GREAT_AND, .IO_CLOBBER => source_fd.* = os.STDOUT_FILENO,
-        }
+    for (io_redirs) |io_redir| {
+        var savedFd = jobs.SavedIOFd{};
+        savedFd.saveApplyFd(ctl.allocator, io_redir) catch |err| {
+            switch (err) {
+                error.AccessDenied => printError("kzh: cannot create {s}: Permission denied\n", .{io_redir.name.cast(.STRING).?.str}), // TODO word string function
+                error.SameFd => continue,
+                else => printError("kzh: {}", .{err}),
+            }
+            os.exit(1);
+        };
+        arr.appendAssumeCapacity(savedFd);
     }
-    return dest_fd;
+    ctl.saved_fds = arr.toOwnedSlice();
 }
 
-test "Exec Simple Command" {
-    // TODO
-}
+// TODO have a function that returns only a word
+// also have an evalWord function that also call functions that populates a array (currently there is some things like this)

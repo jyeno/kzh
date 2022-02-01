@@ -1,13 +1,13 @@
 //! builtin module, it provides a comptime string map with the builtins
 //! functions of the shell, and also an interface to parsing of args
 // TODO make tests for every builtin, when possible
-// TODO have a flag iterator, to provide an easy way to define and use flags
 // make an generalized error printer, it should print the error message, something like this:
 // "kzh: {}: {}\n" where the first {} is the command called, and the second {} is the error
 const std = @import("std");
 const printError = std.debug.print;
+const JobController = @import("jobs.zig").JobController;
 
-pub const builtins = std.ComptimeStringMap(fn ([]const []const u8) u8, .{
+pub const builtins = std.ComptimeStringMap(fn (*JobController, []const []const u8) u8, .{
     .{ "builtin", @import("builtins/builtin.zig").kzhBuiltin },
     .{ "cd", @import("builtins/cd.zig").kzhCd }, // not completed
     .{ "echo", @import("builtins/echo.zig").kzhEcho }, // not completed
@@ -17,18 +17,16 @@ pub const builtins = std.ComptimeStringMap(fn ([]const []const u8) u8, .{
     .{ "true", @import("builtins/true.zig").kzhTrue },
 });
 
-const OptType = union(enum) { String: ?[]const u8, NoArgs: void };
+const OptType = enum { NEEDS_ARG, OPTIONAL_ARG, NO_ARG };
 
 /// Creates an Option struct with given type (must be enum)
 pub fn Option(comptime T: type) type {
     return struct {
         /// Identifier of the option, must be an enum, unique
         identifier: T,
-        /// wherenever it needs args (or not if Nono)
+        /// whenever it needs or have optional arg, or none
         /// defaults to OptType.NoArgs
-        kind: OptType = .NoArgs,
-        /// whenever it is required to have a following argument
-        needsArg: bool = false,
+        kind: OptType = .NO_ARG,
         /// short version of the option
         short: ?u8 = null,
     };
@@ -38,7 +36,8 @@ pub fn Option(comptime T: type) type {
 fn OptToken(comptime T: type) type {
     return struct {
         id: T,
-        value: OptType,
+        is_plus: bool = false,
+        value: ?[]const u8 = null,
     };
 }
 
@@ -50,6 +49,7 @@ pub fn OptIterator(comptime T: type) type {
         opt_index: u8 = 1,
         arg_index: u8 = 1,
         opt_pos: u8 = 0,
+        only_args: bool = false,
 
         const Self = @This();
         const Opt = Option(T);
@@ -63,13 +63,14 @@ pub fn OptIterator(comptime T: type) type {
         /// Returns next Option, or null if reached the end of argv,
         /// error if there is an invalid option, missing or invalid option arg
         pub fn nextOpt(self: *Self) !?Token {
-            while (self.opt_index < self.argv.len) : ({
+            while (self.opt_index < self.argv.len and !self.only_args) : ({
                 self.opt_index += 1;
                 self.opt_pos = 0;
             }) {
-                // TODO implement '--'
                 const opt = self.argv[self.opt_index];
-                if (opt.len >= 2 and opt[0] == '-') {
+                if (std.mem.eql(u8, "--", opt)) {
+                    self.only_args = true;
+                } else if (opt.len >= 2 and (opt[0] == '-' or opt[0] == '+')) {
                     return try self.nextShortOpt();
                 }
             }
@@ -81,13 +82,11 @@ pub fn OptIterator(comptime T: type) type {
         pub fn nextArg(self: *Self) ?[]const u8 {
             while (self.arg_index < self.argv.len) : (self.arg_index += 1) {
                 const arg = self.argv[self.arg_index];
-                // TODO check if current arg index is an arg of an option
-                if (arg[0] != '-' or arg.len == 1) {
+                // TODO improve, make this cheaper
+                if ((self.only_args and !std.mem.eql(u8, "--", arg)) or arg[0] != '-' or arg[0] == '+' or arg.len == 1) {
                     self.arg_index += 1;
                     return arg;
-                }
-
-                if (self.isNextOptArg()) {
+                } else if (self.isNextOptArg()) {
                     self.arg_index += 1;
                 }
             }
@@ -101,16 +100,39 @@ pub fn OptIterator(comptime T: type) type {
 
             const opt_str = self.argv[self.opt_index];
             if (self.getShortOpt(opt_str[self.opt_pos])) |opt| {
-                if (opt.kind == OptType.NoArgs) {
-                    if (self.opt_pos == opt_str.len - 1) {
-                        self.opt_pos = 0;
-                        self.opt_index += 1;
-                    } else {
-                        self.opt_pos += 1;
-                    }
-                    return Token{ .id = opt.identifier, .value = OptType.NoArgs };
-                }
-                // TODO supports short options that have args
+                return switch (opt.kind) {
+                    .NO_ARG => token: {
+                        if (self.opt_pos == opt_str.len - 1) {
+                            self.opt_pos = 0;
+                            self.opt_index += 1;
+                        } else {
+                            self.opt_pos += 1;
+                        }
+                        break :token Token{ .id = opt.identifier, .is_plus = opt_str[0] == '+' };
+                    },
+                    .NEEDS_ARG => token: {
+                        if (self.opt_pos == opt_str.len - 1) {
+                            if (self.getNextOptArg()) |value| {
+                                self.opt_pos = 0;
+                                self.opt_index += 1;
+                                break :token Token{ .id = opt.identifier, .value = value, .is_plus = opt_str[0] == '+' };
+                            }
+                        }
+
+                        printError("{s}: -{c}: needs argument\n", .{ self.argv[0], opt_str[self.opt_index] });
+                        break :token error.MissingOptionArg;
+                    },
+                    .OPTIONAL_ARG => token: {
+                        const value = self.getNextOptArg();
+                        if (self.opt_pos == opt_str.len - 1) {
+                            self.opt_pos = 0;
+                            self.opt_index += 1;
+                        } else {
+                            self.opt_pos += 1;
+                        }
+                        break :token Token{ .id = opt.identifier, .value = value, .is_plus = opt_str[0] == '+' };
+                    },
+                };
             }
             printError("kzh: {s}: -{c}: unknown option\n", .{ self.argv[0], opt_str[self.opt_index] });
             return error.InvalidOption;
@@ -134,7 +156,7 @@ pub fn OptIterator(comptime T: type) type {
             const opt_str = self.argv[self.arg_index];
             for (opt_str[1..]) |ch, i| {
                 if (self.getShortOpt(ch)) |opt| {
-                    if (opt.kind == OptType.NoArgs) continue;
+                    if (opt.kind == .NO_ARG) continue;
 
                     // if at the end of current option string and the
                     // option type is not NoArgs, returns true
@@ -145,6 +167,17 @@ pub fn OptIterator(comptime T: type) type {
                 }
             }
             return false;
+        }
+
+        /// Gets the next argument of the current option, null if none
+        fn getNextOptArg(self: *Self) ?[]const u8 {
+            // TODO support -L[n]
+            if (self.opt_index + 1 >= self.argv.len) {
+                return null;
+            }
+            const opt_arg_str = self.argv[self.opt_index + 1];
+
+            return if (opt_arg_str[0] != '-' and opt_arg_str[0] != '+') opt_arg_str else null;
         }
     };
 }

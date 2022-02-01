@@ -12,7 +12,7 @@ pub usingnamespace command;
 const esc = "\x1B";
 const csi = esc ++ "[";
 
-pub fn create(allocator: *mem.Allocator, comptime T: type, data: T) !*T {
+pub fn create(allocator: mem.Allocator, comptime T: type, data: T) !*T {
     const ptr = try allocator.create(T);
     ptr.* = data;
     return ptr;
@@ -26,7 +26,7 @@ pub const Program = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self: *Program, allocator: *mem.Allocator) void {
+    pub fn deinit(self: *Program, allocator: mem.Allocator) void {
         for (self.body) |command_list| {
             command_list.deinit(allocator);
         }
@@ -42,7 +42,7 @@ pub const CommandList = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self: *CommandList, allocator: *mem.Allocator) void {
+    pub fn deinit(self: *CommandList, allocator: mem.Allocator) void {
         self.and_or_cmd_list.deinit(allocator);
         allocator.destroy(self);
     }
@@ -50,9 +50,9 @@ pub const CommandList = struct {
 
 /// And Or Command List representation
 pub const AndOrCmdList = struct {
-    impl: *c_void,
+    impl: *anyopaque,
     kind: AndOrCmdListKind,
-    deinitFn: fn (*c_void, *mem.Allocator) void,
+    deinitFn: fn (*anyopaque, mem.Allocator) void,
 
     /// And Or Command List type representation
     pub const AndOrCmdListKind = enum(u1) {
@@ -79,7 +79,7 @@ pub const AndOrCmdList = struct {
     }
 
     /// Calls the correct deinitializer of the `AndOrCmdList` type
-    pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: *mem.Allocator) void {
+    pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: mem.Allocator) void {
         and_or_cmd.deinitFn(and_or_cmd.impl, allocator);
     }
 };
@@ -99,7 +99,7 @@ pub const Pipeline = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*Pipeline, @alignCast(@alignOf(Pipeline), self_void));
         for (self.commands) |cmd| {
             cmd.deinit(allocator);
@@ -132,7 +132,7 @@ pub const BinaryOp = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
         self.left.deinit(allocator);
         self.right.deinit(allocator);

@@ -51,12 +51,12 @@ const Assign = ast.Assign;
 pub const Parser = struct {
     /// source is not owned by the parser
     source: []const u8,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
     currentPos: usize = 0,
     currentSymbol: ?Symbol = null,
 
     /// Initializes the parser
-    pub fn init(allocator: *mem.Allocator, source: []const u8) Parser {
+    pub fn init(allocator: mem.Allocator, source: []const u8) Parser {
         return Parser{ .allocator = allocator, .source = source };
     }
 
@@ -76,7 +76,9 @@ pub const Parser = struct {
             try command_list_array.append(cmd_list);
         }
 
-        return try ast.create(parser.allocator, ast.Program, .{ .body = command_list_array.toOwnedSlice() });
+        return try ast.create(parser.allocator, ast.Program, .{
+            .body = command_list_array.toOwnedSlice(),
+        });
     }
 
     /// list  : list separator_op and_or
@@ -141,7 +143,11 @@ pub const Parser = struct {
             }
             parser.linebreak();
             if (try parser.andOrCmdList()) |and_or_right| {
-                return (try ast.create(parser.allocator, ast.BinaryOp, .{ .left = pl, .right = and_or_right, .kind = bin_op_kind })).andOrCmd();
+                return (try ast.create(parser.allocator, ast.BinaryOp, .{
+                    .left = pl,
+                    .right = and_or_right,
+                    .kind = bin_op_kind,
+                })).andOrCmd();
             } else {
                 // TODO error if and_or_right command is invalid
                 // or read newline
@@ -175,7 +181,10 @@ pub const Parser = struct {
             }
         }
 
-        return (try ast.create(parser.allocator, ast.Pipeline, .{ .commands = command_array.toOwnedSlice(), .has_bang = has_bang })).andOrCmd();
+        return (try ast.create(parser.allocator, ast.Pipeline, .{
+            .commands = command_array.toOwnedSlice(),
+            .has_bang = has_bang,
+        })).andOrCmd();
     }
 
     /// command  : simple_command
@@ -232,9 +241,16 @@ pub const Parser = struct {
                 try io_array.append(io_redir);
             }
             if (io_array.items.len > 0) {
-                return (try ast.create(parser.allocator, ast.FuncDecl, .{ .name = name, .body = cmd, .io_redirs = io_array.toOwnedSlice() })).cmd();
+                return (try ast.create(parser.allocator, ast.FuncDecl, .{
+                    .name = name,
+                    .body = cmd,
+                    .io_redirs = io_array.toOwnedSlice(),
+                })).cmd();
             } else {
-                return (try ast.create(parser.allocator, ast.FuncDecl, .{ .name = name, .body = cmd })).cmd();
+                return (try ast.create(parser.allocator, ast.FuncDecl, .{
+                    .name = name,
+                    .body = cmd,
+                })).cmd();
             }
         } else {
             return null;
@@ -277,7 +293,10 @@ pub const Parser = struct {
         if (try parser.compoundList(closing_char)) |body| {
             // TODO read newline until lchar
             const cmd_group_kind: ast.CmdGroup.GroupKind = if (closing_char[0] == '}') .BRACE_GROUP else .SUBSHELL;
-            const cmd_group = try ast.create(parser.allocator, ast.CmdGroup, .{ .body = body, .kind = cmd_group_kind });
+            const cmd_group = try ast.create(parser.allocator, ast.CmdGroup, .{
+                .body = body,
+                .kind = cmd_group_kind,
+            });
             return cmd_group.cmd();
         }
         return null;
@@ -301,9 +320,14 @@ pub const Parser = struct {
         while (try parser.andOrCmdList()) |and_or_cmd| {
             // TODO here_document
             if (parser.separator()) |sep| {
-                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&' }));
+                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{
+                    .and_or_cmd_list = and_or_cmd,
+                    .is_async = sep == '&',
+                }));
             } else {
-                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{ .and_or_cmd_list = and_or_cmd }));
+                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{
+                    .and_or_cmd_list = and_or_cmd,
+                }));
             }
         }
         if (cmd_list_array.items.len > 0) {
@@ -365,7 +389,13 @@ pub const Parser = struct {
             }
         };
         if (try parser.doGroup()) |body| {
-            return (try ast.create(parser.allocator, ast.ForDecl, .{ .name = name, .has_in = has_in, .list = for_list, .body = body, .is_selection = is_selection })).cmd();
+            return (try ast.create(parser.allocator, ast.ForDecl, .{
+                .name = name,
+                .has_in = has_in,
+                .list = for_list,
+                .body = body,
+                .is_selection = is_selection,
+            })).cmd();
         }
         // TODO error if comes here
         return null;
@@ -392,6 +422,32 @@ pub const Parser = struct {
     ///               |           case_item_ns
     /// case_list     : case_list case_item
     ///               | case_item
+    fn caseDeclaration(parser: *Parser) errors!?Command {
+        if (!parser.consumeToken("case")) {
+            return null;
+        }
+        if (try parser.word()) |word_value| {
+            parser.linebreak();
+            if (parser.consumeToken("in")) {
+                parser.linebreak();
+
+                var items = std.ArrayList(ast.CaseDecl.CaseItem).init(parser.allocator);
+                // wrong logic
+                while (!parser.consumeToken("esac")) {
+                    try items.append(try parser.caseItemDeclaration());
+                    // TODO optional ;; on last item
+                }
+
+                return (try ast.create(parser.allocator, ast.CaseDecl, .{
+                    .word = word_value,
+                    .items = items.toOwnedSlice(),
+                })).cmd();
+            }
+            word_value.deinit(parser.allocator);
+        }
+        return null;
+    }
+
     /// case_item_ns  : pattern ')' linebreak
     ///               | pattern ')' compound_list
     ///               | '(' pattern ')' linebreak
@@ -402,9 +458,9 @@ pub const Parser = struct {
     ///               | '(' pattern ')' compound_list DSEMI linebreak
     /// pattern       : WORD             /* Apply rule 4 */
     ///               | pattern '|' WORD /* Do not apply rule 4 */
-    fn caseDeclaration(parser: *Parser) errors!?Command {
+    fn caseItemDeclaration(parser: *Parser) errors!ast.CaseDecl.CaseItem {
         _ = parser;
-        return null;
+        unreachable;
     }
 
     /// if_clause  : If compound_list Then compound_list else_part Fi
@@ -425,7 +481,11 @@ pub const Parser = struct {
                 const else_decl = try parser.elseDeclaration();
 
                 if (parser.consumeToken("fi")) {
-                    return (try ast.create(parser.allocator, ast.IfDecl, .{ .condition = condition, .body = body, .else_decl = else_decl })).cmd();
+                    return (try ast.create(parser.allocator, ast.IfDecl, .{
+                        .condition = condition,
+                        .body = body,
+                        .else_decl = else_decl,
+                    })).cmd();
                 }
             }
         }
@@ -453,12 +513,19 @@ pub const Parser = struct {
                         parser.allocator.free(body);
                     }
                     const else_decl = try parser.elseDeclaration();
-                    return (try ast.create(parser.allocator, ast.IfDecl, .{ .condition = condition, .body = body, .else_decl = else_decl })).cmd();
+                    return (try ast.create(parser.allocator, ast.IfDecl, .{
+                        .condition = condition,
+                        .body = body,
+                        .else_decl = else_decl,
+                    })).cmd();
                 }
             }
         } else if (parser.consumeToken("else")) {
             if (try parser.compoundList(null)) |body| {
-                return (try ast.create(parser.allocator, ast.CmdGroup, .{ .body = body, .kind = .BRACE_GROUP })).cmd();
+                return (try ast.create(parser.allocator, ast.CmdGroup, .{
+                    .body = body,
+                    .kind = .BRACE_GROUP,
+                })).cmd();
             }
         }
         return null;
@@ -484,7 +551,11 @@ pub const Parser = struct {
                 parser.allocator.free(condition);
             }
             if (try parser.doGroup()) |body| {
-                return (try ast.create(parser.allocator, ast.LoopDecl, .{ .condition = condition, .body = body, .kind = loop_kind })).cmd();
+                return (try ast.create(parser.allocator, ast.LoopDecl, .{
+                    .condition = condition,
+                    .body = body,
+                    .kind = loop_kind,
+                })).cmd();
             }
         }
         return null;
@@ -772,7 +843,10 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false })).word();
+            return (try ast.create(parser.allocator, ast.WordList, .{
+                .items = word_array.toOwnedSlice(),
+                .is_double_quoted = false,
+            })).word();
         }
     }
 
@@ -791,7 +865,10 @@ pub const Parser = struct {
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
-            return (try ast.create(parser.allocator, ast.WordCommand, .{ .program = sub_program, .is_back_quoted = back_quotes })).word();
+            return (try ast.create(parser.allocator, ast.WordCommand, .{
+                .program = sub_program,
+                .is_back_quoted = back_quotes,
+            })).word();
         }
 
         return null;
@@ -880,7 +957,10 @@ pub const Parser = struct {
         }
 
         std.debug.assert(parser.readChar().? == '"');
-        return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = true })).word();
+        return (try ast.create(parser.allocator, ast.WordList, .{
+            .items = word_array.toOwnedSlice(),
+            .is_double_quoted = true,
+        })).word();
     }
 
     fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
@@ -911,7 +991,10 @@ pub const Parser = struct {
         } else if (word_array.items.len == 1) {
             return word_array.items[0];
         } else {
-            return (try ast.create(parser.allocator, ast.WordList, .{ .items = word_array.toOwnedSlice(), .is_double_quoted = false })).word();
+            return (try ast.create(parser.allocator, ast.WordList, .{
+                .items = word_array.toOwnedSlice(),
+                .is_double_quoted = false,
+            })).word();
         }
     }
 
@@ -973,7 +1056,12 @@ pub const Parser = struct {
 
         std.debug.assert(parser.readChar().? == '}');
 
-        return (try ast.create(parser.allocator, ast.WordParameter, .{ .name = name, .arg = arg, .op = param_op, .has_colon = has_colon })).word();
+        return (try ast.create(parser.allocator, ast.WordParameter, .{
+            .name = name,
+            .arg = arg,
+            .op = param_op,
+            .has_colon = has_colon,
+        })).word();
     }
 
     fn wordSingleQuotes(parser: *Parser) !?Word {
@@ -983,7 +1071,10 @@ pub const Parser = struct {
         if (parser.readToken(word_size)) |str| {
             std.debug.assert(parser.readChar().? == '\'');
 
-            return (try ast.create(parser.allocator, ast.WordString, .{ .str = str, .is_single_quoted = true })).word();
+            return (try ast.create(parser.allocator, ast.WordString, .{
+                .str = str,
+                .is_single_quoted = true,
+            })).word();
         }
         // TODO error or read new line
 
@@ -1234,7 +1325,6 @@ pub const Parser = struct {
 
             if (parser.currentSymbol == null) parser.currentSymbol = .TOKEN;
         } else {
-            // TODO maybe wrong?
             parser.currentSymbol = .EOF;
         }
     }

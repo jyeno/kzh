@@ -1,71 +1,128 @@
 const std = @import("std");
+const mem = std.mem;
 const Parser = @import("parse.zig").Parser;
 const kzhExit = @import("builtins/exit.zig").kzhExit;
 const symtab = @import("symtab.zig");
 const jobs = @import("jobs.zig");
+const Option = @import("builtins.zig").Option;
+const OptIterator = @import("builtins.zig").OptIterator;
 
-// TODO make general purpose allocatorglobal, then deinit it at kzhExit
-pub fn main() anyerror!void {
+const InitOptions = enum {
+    COMMAND_ONLY,
+    USE_STDIN,
+};
+
+const options = [_]Option(InitOptions){
+    .{ .identifier = .COMMAND_ONLY, .short = 'c', .kind = .NEEDS_ARG },
+    .{ .identifier = .USE_STDIN, .short = 's', .kind = .NO_ARG },
+};
+
+pub fn main() anyerror!u8 {
     const interative_mode = true;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloca = &gpa.allocator;
+    const alloca = gpa.allocator();
     defer {
         const leaked = gpa.deinit();
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
 
-    try init(alloca, interative_mode);
-    defer {
-        symtab.global_symtab.deinit();
-        jobs.global_controller.deinit();
+    var ctl = jobs.JobController.init(alloca);
+    try initDefaultConf(&ctl, interative_mode);
+    defer ctl.deinit();
+
+    // TODO remove it and check arg by arg, also make it so that it stays simples
+    var it = OptIterator(InitOptions).init(&options, &.{"kzh"}); //, "-c", "echo oi" }); // gets the args
+    while (it.nextOpt() catch {
+        return 1;
+    }) |option| {
+        switch (option.id) {
+            .COMMAND_ONLY => return @intCast(u8, try internalExec(&ctl, option.value.?)),
+            .USE_STDIN => {}, // TODO
+        }
     }
 
     if (interative_mode) {
-        kzhLoop(alloca) catch |err| switch (err) {
-            else => std.debug.print("{}\n", .{err}),
-        };
+        try kzhLoop(&ctl);
     }
+    return 0;
 }
 
-fn init(allocator: *std.mem.Allocator, interative_mode: bool) !void {
+fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
     _ = interative_mode;
+    _ = ctl;
+    errdefer ctl.deinit();
+    // TODO initialize ctl
 
-    try symtab.initGlobalSymbolTable(allocator);
-    errdefer symtab.global_symtab.deinit();
-
-    try jobs.initGlobalJobController(allocator);
+    // use these to populate initial ctl envvars
+    //     "alias",
+    //     "autoload='typeset -fu'",
+    //     "functions='typeset -f'",
+    //     "hash='alias -t'",
+    //     "history='fc -l'",
+    //     "integer='typeset -i'",
+    //     "local='typeset'",
+    //     "login='exec login'",
+    //     "nohup='nohup '",
+    //     "r='fc -s'",
+    //     "stop='kill -STOP'",
+    // try symtab.initGlobalSymbolTable(allocator);
+    // errdefer symtab.global_symtab.deinit();
+    //
+    //     for (std.os.environ) |env| {
+    //         const equalsIdx: ?usize = blk: {
+    //             var index: usize = 0;
+    //             while (env[index] != '=' and env[index] != 0) : (index += 1) {}
+    //             // it cant be on the beginning and end of the env, if it is invalid therefore return null
+    //             break :blk if (index != 0 and env[index] != 0) index else null;
+    //         };
+    //         // TODO add even when the equalsIdx is null
+    //         if (equalsIdx) |index| {
+    //             const value = blk: {
+    //                 var end = index + 1;
+    //                 while (env[end] != 0) : (end += 1) {}
+    //                 break :blk env[index + 1 .. end];
+    //             };
+    //             try global_symtab.put(env[0..index], value);
+    //         }
+    //     }
 }
 
 /// kzh main loop, used when the program is run in interactive mode
-fn kzhLoop(alloca: *std.mem.Allocator) !void {
-    var job_ctl = jobs.global_controller;
-    var last_status: u8 = 0;
+fn kzhLoop(ctl: *jobs.JobController) !void {
+    // TODO consider usage of fallback allocator here
+    var last_status: u32 = 0;
     while (true) {
         var algo: [256]u8 = undefined;
         const stdin = std.io.getStdIn().reader();
-        if (last_status == 0) {
-            std.debug.print("> ", .{});
-        } else {
-            std.debug.print(">> ", .{});
-        }
+        std.debug.print("{}> ", .{last_status});
+
         if (try stdin.readUntilDelimiterOrEof(&algo, '\n')) |input| {
-            var parser = Parser.init(alloca, input);
+            var parser = Parser.init(ctl.allocator, input);
             var program = parser.parse() catch |err| {
                 std.debug.print("loop err: {}\n", .{err});
                 continue;
             };
-            defer program.deinit(alloca);
+            defer program.deinit(ctl.allocator);
 
             // TODO remove, for debug only
-            if (std.mem.eql(u8, input, "exit")) {
+            if (mem.eql(u8, input, "exit")) {
                 break;
             }
 
             // TODO consider, should just use try here or should errors be treated inside of the job_ctl?
-            last_status = try job_ctl.run(program);
+            last_status = try ctl.run(program);
             // break;
         }
     }
+}
+
+fn internalExec(ctl: *jobs.JobController, input: []const u8) !u32 {
+    var parser = Parser.init(ctl.allocator, input);
+    var program = try parser.parse();
+    defer program.deinit(ctl.allocator);
+    // TODO use kzhExec
+
+    return try ctl.run(program);
 }
 
 test "Test All" {

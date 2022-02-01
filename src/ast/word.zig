@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const ast = @import("../ast.zig");
 const Program = ast.Program;
 
@@ -8,9 +9,9 @@ const csi = esc ++ "[";
 // make it file
 // TODO way to convert to its kind?
 pub const Word = struct {
-    impl: *c_void,
+    impl: *anyopaque,
     kind: WordKind,
-    deinitFn: fn (*c_void, *std.mem.Allocator) void,
+    deinitFn: fn (*anyopaque, mem.Allocator) void,
 
     pub const WordKind = enum {
         STRING,
@@ -38,7 +39,7 @@ pub const Word = struct {
         }
     }
 
-    pub fn deinit(word: *const Word, allocator: *std.mem.Allocator) void {
+    pub fn deinit(word: *const Word, allocator: mem.Allocator) void {
         word.deinitFn(word.impl, allocator);
     }
 };
@@ -56,7 +57,7 @@ pub const WordString = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         var self = @ptrCast(*WordString, @alignCast(@alignOf(WordString), self_void));
         allocator.destroy(self);
     }
@@ -107,7 +108,7 @@ pub const WordParameter = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*WordParameter, @alignCast(@alignOf(WordParameter), self_void));
         defer allocator.destroy(self);
 
@@ -134,7 +135,7 @@ pub const WordCommand = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         var self = @ptrCast(*WordCommand, @alignCast(@alignOf(WordCommand), self_void));
         if (self.program) |prog| {
             prog.deinit(allocator);
@@ -157,7 +158,7 @@ pub const WordArithm = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         var self = @ptrCast(*WordArithm, @alignCast(@alignOf(WordArithm), self_void));
         self.body.deinit(allocator);
         allocator.destroy(self);
@@ -179,7 +180,7 @@ pub const WordList = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self_void: *c_void, allocator: *std.mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         var self = @ptrCast(*WordList, @alignCast(@alignOf(WordList), self_void));
         for (self.items) |item| {
             item.deinit(allocator);

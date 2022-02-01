@@ -1,9 +1,5 @@
 const std = @import("std");
-
-const SymTabString = SymTab([]const u8);
-
-// this variable is populated at the main
-pub var global_symtab: SymTabString = undefined;
+const mem = std.mem;
 
 /// Symbol Table multi-level representation, internally it uses a hash map.
 pub fn SymTab(comptime T: type) type {
@@ -17,14 +13,14 @@ pub fn SymTab(comptime T: type) type {
         pub const Self = @This();
 
         /// Initializes a symbol table
-        pub fn init(allocator: *std.mem.Allocator, parent: ?*Self) Self {
+        pub fn init(allocator: mem.Allocator, parent: ?*Self) Self {
             return Self{ .arena = std.heap.ArenaAllocator.init(allocator), .parent = parent };
         }
 
-        pub fn initCapacity(allocator: *std.mem.Allocator, parent: ?*Self, capacity: u32) !Self {
+        pub fn initCapacity(allocator: mem.Allocator, parent: ?*Self, capacity: u32) !Self {
             var arena_allocator = std.heap.ArenaAllocator.init(allocator);
             var table: HashMap = .{};
-            try table.ensureTotalCapacity(&arena_allocator.allocator, capacity);
+            try table.ensureTotalCapacity(arena_allocator.allocator(), capacity);
             return Self{ .arena = arena_allocator, .parent = parent, .table = table };
         }
 
@@ -65,28 +61,14 @@ pub fn SymTab(comptime T: type) type {
 
         /// Inserts `value` with given `key`, if there is already an entry, it is overwriten
         pub fn put(self: *Self, key: []const u8, value: T) !void {
-            try self.table.put(&self.arena.allocator, key, value);
-        }
-
-        /// Inserts `value` with given `key`, if there is already an entry, it is overwriten
-        /// Copies the data of `value`
-        pub fn putCopyVal(self: *Self, key: []const u8, value: T) !void {
-            // TODO verify type of data and act accordingly
-            const new_value = try std.mem.dupe(&self.arena.allocator, @TypeOf(value[0]), value);
-            try self.table.put(&self.arena.allocator, key, new_value);
+            // TODO cleanup old value
+            // allocate value
+            try self.table.put(self.arena.allocator(), key, value);
         }
 
         /// Inserts `value` with given `key`, if there is already an entry, it is overwriten
         pub fn putAssumeCapacity(self: *Self, key: []const u8, value: T) void {
             self.table.putAssumeCapacity(key, value);
-        }
-
-        /// Inserts `value` with given `key`, if there is already an entry, it is overwriten
-        /// Copies the data of `value`
-        pub fn putAssumeCapacityCopyVal(self: *Self, key: []const u8, value: T) !void {
-            // TODO verify type of data and act accordingly
-            const new_value = try std.mem.dupe(&self.arena.allocator, @TypeOf(value[0]), value);
-            self.table.putAssumeCapacity(self.allocator, key, new_value);
         }
 
         /// Remove entry with given `key`, and returns it if exists.
@@ -114,7 +96,7 @@ pub fn SymTab(comptime T: type) type {
         ///          "KEY_STRING=VALUE"
         /// Where KEY_STRING is the key of the entry and VALUE is the value of the entry.
         // TODO analize a way to optimize it
-        pub fn dupeZ(self: *Self, allocator: *std.mem.Allocator) ![*:null]?[*:0]const u8 {
+        pub fn dupeZ(self: *Self, allocator: mem.Allocator) ![*:null]?[*:0]const u8 {
             if (T != []const u8) {
                 @compileError("only []const u8 symtabs are allowed to use this function.");
             }
@@ -130,27 +112,6 @@ pub fn SymTab(comptime T: type) type {
             return try array.toOwnedSliceSentinel(null);
         }
     };
-}
-
-/// Initializes the global symbol table, with the contents std.os.environ
-pub fn initGlobalSymbolTable(allocator: *std.mem.Allocator) !void {
-    global_symtab = try SymTabString.initCapacity(allocator, null, @intCast(u32, std.os.environ.len));
-    for (std.os.environ) |env| {
-        const equalsIdx: ?usize = blk: {
-            var index: usize = 0;
-            while (env[index] != '=' and env[index] != 0) : (index += 1) {}
-            // it cant be on the beginning and end of the env, if it is invalid therefore return null
-            break :blk if (index != 0 and env[index] != 0) index else null;
-        };
-        if (equalsIdx) |index| {
-            const value = blk: {
-                var end = index + 1;
-                while (env[end] != 0) : (end += 1) {}
-                break :blk env[index + 1 .. end];
-            };
-            global_symtab.putAssumeCapacity(env[0..index], value);
-        }
-    }
 }
 
 test "Symbol Table" {

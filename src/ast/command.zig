@@ -8,9 +8,9 @@ const csi = esc ++ "[";
 
 /// Command representation
 pub const Command = struct {
-    impl: *c_void,
+    impl: *anyopaque,
     kind: CommandKind,
-    deinitFn: fn (*c_void, *mem.Allocator) void,
+    deinitFn: fn (*anyopaque, mem.Allocator) void,
 
     /// Command type representation
     pub const CommandKind = enum {
@@ -19,6 +19,7 @@ pub const Command = struct {
         IF_DECL,
         FOR_DECL,
         LOOP_DECL,
+        CASE_DECL,
         FUNC_DECL,
 
         pub fn Type(self: CommandKind) type {
@@ -28,6 +29,7 @@ pub const Command = struct {
                 .IF_DECL => IfDecl,
                 .FOR_DECL => ForDecl,
                 .LOOP_DECL => LoopDecl,
+                .CASE_DECL => CaseDecl,
                 .FUNC_DECL => FuncDecl,
             };
         }
@@ -43,7 +45,7 @@ pub const Command = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(cmd: *const Command, allocator: *mem.Allocator) void {
+    pub fn deinit(cmd: *const Command, allocator: mem.Allocator) void {
         cmd.deinitFn(cmd.impl, allocator);
     }
 };
@@ -63,7 +65,7 @@ pub const SimpleCommand = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
         defer allocator.destroy(self);
 
@@ -116,7 +118,7 @@ pub const CmdGroup = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
         defer {
             allocator.free(self.body);
@@ -142,7 +144,7 @@ pub const IfDecl = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
         defer {
             allocator.free(self.condition);
@@ -175,7 +177,7 @@ pub const ForDecl = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
         defer {
             allocator.free(self.body);
@@ -211,7 +213,7 @@ pub const LoopDecl = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
         defer {
             allocator.free(self.body);
@@ -223,6 +225,44 @@ pub const LoopDecl = struct {
         }
         for (self.body) |cmd_list| {
             cmd_list.deinit(allocator);
+        }
+    }
+};
+
+pub const CaseDecl = struct {
+    word: Word,
+    items: []CaseItem,
+
+    pub const CaseItem = struct {
+        patterns: []Word,
+        body: []*CommandList,
+    };
+
+    pub fn cmd(self: *CaseDecl) Command {
+        return .{
+            .impl = self,
+            .kind = .CASE_DECL,
+            .deinitFn = deinit,
+        };
+    }
+
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
+        const self = @ptrCast(*CaseDecl, @alignCast(@alignOf(CaseDecl), self_void));
+        defer {
+            allocator.free(self.items);
+            allocator.destroy(self);
+        }
+
+        self.word.deinit(allocator);
+        for (self.items) |item| {
+            for (item.patterns) |pattern| {
+                pattern.deinit(allocator);
+            }
+            allocator.free(item.patterns);
+            for (item.body) |cmd_list| {
+                cmd_list.deinit(allocator);
+            }
+            allocator.free(item.body);
         }
     }
 };
@@ -241,7 +281,7 @@ pub const FuncDecl = struct {
         };
     }
 
-    pub fn deinit(self_void: *c_void, allocator: *mem.Allocator) void {
+    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
         const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
         defer {
             allocator.free(self.name);

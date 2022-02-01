@@ -50,11 +50,9 @@ exec:
 * pipeline greater than 1 command
 * command types:
   - functions
-  - brace groups
   - subshell
   - for loops
   - while loops
-  - if else statements
   - case
 
 symbol table:
@@ -114,3 +112,8 @@ misc:
 * profile allocators
 * complete command/path
 * hints?
+
+
+TODO: there was a segfault after running with one or more arguments, also with only the command name it hangs
+
+make easy to read files, it should make a blis to read configuration files

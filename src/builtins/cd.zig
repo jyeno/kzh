@@ -1,5 +1,6 @@
 //! cd builtin
 const std = @import("std");
+const JobController = @import("../jobs.zig").JobController;
 const Option = @import("../builtins.zig").Option;
 const OptIterator = @import("../builtins.zig").OptIterator;
 const symtab = @import("../symtab.zig");
@@ -16,6 +17,8 @@ const options = [_]Option(CdOptions){
     .{ .identifier = .PHYSICAL, .short = 'P' },
 };
 
+// TODO remove global symtab, use the one on ctl instead
+
 // TODO complete documentation of cd builtin and correct wrong behavior
 //  cd [-LP] [dir]
 ///
@@ -26,10 +29,10 @@ const options = [_]Option(CdOptions){
 /// If the -P option (physical path) is used or if the physical option is set, ‘..’ is relative
 /// to the filesystem directory tree. The PWD and OLDPWD parameters are updated to reflect the
 /// current and old working directory, respectively.
-pub fn kzhCd(args: []const []const u8) u8 {
+pub fn kzhCd(ctl: *JobController, args: []const []const u8) u8 {
     var resolve_symlinks = false; // default behavior, TODO get physical option
 
-    var it = OptIterator(CdOptions).init(options[0..], args);
+    var it = OptIterator(CdOptions).init(&options, args);
     while (it.nextOpt() catch {
         return 1;
     }) |option| {
@@ -45,11 +48,11 @@ pub fn kzhCd(args: []const []const u8) u8 {
 
     // TODO treat possibilities of error
     // TODO CDPATH
-    const old_pwd = symtab.global_symtab.lookup("PWD").?;
-    var new_pwd: []const u8 = symtab.global_symtab.lookup("HOME").?;
+    const old_pwd = ctl.lookupVar("PWD").?;
+    var new_pwd: []const u8 = ctl.lookupVar("HOME").?;
     if (it.nextArg()) |arg| {
         if (std.mem.eql(u8, arg, "-")) {
-            if (symtab.global_symtab.lookup("OLDPWD")) |value| {
+            if (ctl.lookupVar("OLDPWD")) |value| {
                 new_pwd = value;
                 should_print_path = true;
             } else {
@@ -59,7 +62,7 @@ pub fn kzhCd(args: []const []const u8) u8 {
         } else if (resolve_symlinks) {
             new_pwd = std.os.realpath(arg, &buffer) catch return 1;
         } else {
-            new_pwd = std.fs.path.resolve(&fba.allocator, &[_][]const u8{arg}) catch return 1;
+            new_pwd = std.fs.path.resolve(fba.allocator(), &[_][]const u8{arg}) catch return 1;
         }
     }
 
@@ -83,8 +86,8 @@ pub fn kzhCd(args: []const []const u8) u8 {
     };
     if (should_print_path) writer.print("{s}\n", .{new_pwd}) catch return 1;
 
-    symtab.global_symtab.putCopyVal("PWD", new_pwd) catch return 1;
-    symtab.global_symtab.put("OLDPWD", old_pwd) catch return 1;
+    ctl.putVar("PWD", new_pwd) catch return 1;
+    ctl.putVar("OLDPWD", old_pwd) catch return 1;
 
     return 0;
 }
