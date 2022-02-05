@@ -857,11 +857,13 @@ pub const Parser = struct {
 
     fn wordCommand(parser: *Parser, back_quotes: bool) !?Word {
         const open_close_ch = if (back_quotes) "``" else "()";
-        std.debug.assert(parser.readChar().? == open_close_ch[0]);
+        const opening_char = parser.readChar().?;
+        std.debug.assert(opening_char == open_close_ch[0]);
 
         const word_size = parser.peekWordSizeUntil(open_close_ch[1]);
         if (parser.readToken(word_size)) |buffer| {
-            std.debug.assert(parser.readChar().? == open_close_ch[1]);
+            const closing_char = parser.readChar().?;
+            std.debug.assert(closing_char == open_close_ch[1]);
 
             var subparser = Parser.init(parser.allocator, buffer);
             const sub_program = try subparser.parse();
@@ -875,7 +877,8 @@ pub const Parser = struct {
     }
 
     fn wordDollar(parser: *Parser) !?Word {
-        std.debug.assert(parser.readChar().? == '$');
+        const current_char = parser.readChar().?;
+        std.debug.assert(current_char == '$');
 
         if (parser.peekChar()) |currentChar| {
             var is_special_param = false;
@@ -916,7 +919,8 @@ pub const Parser = struct {
 
     // TODO fix sequential double quotes seems to not work
     fn wordDoubleQuotes(parser: *Parser) !?Word {
-        std.debug.assert(parser.readChar().? == '"');
+        const opening_char = parser.readChar().?;
+        std.debug.assert(opening_char == '"');
 
         var word_array = std.ArrayList(Word).init(parser.allocator);
         defer word_array.deinit();
@@ -956,7 +960,8 @@ pub const Parser = struct {
             }
         }
 
-        std.debug.assert(parser.readChar().? == '"');
+        const closing_char = parser.readChar().?;
+        std.debug.assert(closing_char == '"');
         return (try ast.create(parser.allocator, ast.WordList, .{
             .items = word_array.toOwnedSlice(),
             .is_double_quoted = true,
@@ -1001,7 +1006,8 @@ pub const Parser = struct {
     const ParameterOp = ast.WordParameter.ParameterOperation;
 
     fn wordParameterExpression(parser: *Parser) !?Word {
-        std.debug.assert(parser.readChar().? == '{');
+        const opening_char = parser.readChar().?;
+        std.debug.assert(opening_char == '{');
 
         var param_op: ParameterOp = ParameterOp.PARAMETER_NO_OP;
         if (parser.peekChar()) |ch| {
@@ -1054,7 +1060,8 @@ pub const Parser = struct {
             arg = try parser.wordList(word);
         }
 
-        std.debug.assert(parser.readChar().? == '}');
+        const closing_char = parser.readChar().?;
+        std.debug.assert(closing_char == '}');
 
         return (try ast.create(parser.allocator, ast.WordParameter, .{
             .name = name,
@@ -1065,11 +1072,13 @@ pub const Parser = struct {
     }
 
     fn wordSingleQuotes(parser: *Parser) !?Word {
-        std.debug.assert(parser.readChar().? == '\'');
+        const opening_char = parser.readChar().?;
+        std.debug.assert(opening_char == '\'');
 
         const word_size = parser.peekWordSizeUntil('\'');
         if (parser.readToken(word_size)) |str| {
-            std.debug.assert(parser.readChar().? == '\'');
+            const closing_char = parser.readChar().?;
+            std.debug.assert(closing_char == '\'');
 
             return (try ast.create(parser.allocator, ast.WordString, .{
                 .str = str,
@@ -1366,7 +1375,8 @@ pub const Parser = struct {
         if (!parser.isCurrentSymbol(.NEWLINE)) {
             return false;
         }
-        std.debug.assert(parser.readChar().? == '\n');
+        const current_char = parser.readChar().?;
+        std.debug.assert(current_char == '\n');
         parser.resetCurrentSymbol();
         return true;
     }
