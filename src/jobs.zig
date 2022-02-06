@@ -223,41 +223,40 @@ pub const Status = enum {
 
 pub const SavedIOFd = struct {
     old_fd: os.fd_t = -1,
-    current_fd: os.fd_t = -1,
+    duped_fd: os.fd_t = -1,
 
-    pub fn saveApplyFd(self: *SavedIOFd, alloca: std.mem.Allocator, io_redir: ast.IORedir) anyerror!void {
-        _ = alloca;
-        const filename = io_redir.name.cast(.STRING).?.str; // TODO use word() support other word types
+    pub fn saveApplyFd(self: *SavedIOFd, allocator: mem.Allocator, io_redir: ast.IORedir) anyerror!void {
+        _ = allocator;
+        const descriptor_name = io_redir.name.cast(.STRING).?.str; // TODO use word() support other word types
         // TODO do defer here with dealloc
 
-        self.current_fd = switch (io_redir.op) {
-            .IO_LESS => try os.open(filename, os.O.CLOEXEC | os.O.RDONLY, 0),
+        const current_fd = switch (io_redir.op) {
+            .IO_LESS => try os.open(descriptor_name, os.O.CLOEXEC | os.O.RDONLY, 0),
             // .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => createHereDocumentFd TODO
-            .IO_GREAT, .IO_CLOBBER => try os.open(filename, os.O.WRONLY | os.system.O.CREAT | os.O.TRUNC, 0o644),
-            .IO_DOUBLE_GREAT => try os.open(filename, os.O.WRONLY | os.O.CREAT | os.O.APPEND, 0o644),
-            .IO_LESS_AND, .IO_GREAT_AND => std.fmt.parseInt(os.fd_t, filename, 10) catch -1,
+            .IO_GREAT, .IO_CLOBBER => try os.open(descriptor_name, os.O.WRONLY | os.system.O.CREAT | os.O.TRUNC, 0o644),
+            .IO_DOUBLE_GREAT => try os.open(descriptor_name, os.O.WRONLY | os.O.CREAT | os.O.APPEND, 0o644),
+            .IO_LESS_AND, .IO_GREAT_AND => std.fmt.parseInt(os.fd_t, descriptor_name, 10) catch -1,
             else => -1,
         };
-        if (io_redir.io_num) |io_number| {
-            self.old_fd = io_number;
-        } else {
-            self.old_fd = switch (io_redir.op) {
-                .IO_LESS, .IO_LESS_AND, .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => os.STDIN_FILENO,
-                .IO_LESS_GREAT, .IO_GREAT, .IO_DOUBLE_GREAT, .IO_GREAT_AND, .IO_CLOBBER => os.STDOUT_FILENO,
-            };
-        }
-        if (self.old_fd == self.current_fd) return error.SameFd;
-        if (self.current_fd == -1) {
-            printError("something wrong happened, better handling in the futureTM\n", .{});
-        }
-        os.dup2(self.current_fd, self.old_fd) catch |err| {
-            printError("something wrong happened dup2, {}\n", .{err});
+        defer if (io_redir.op != .IO_LESS_AND and io_redir.op != .IO_GREAT_AND) os.close(current_fd);
+
+        self.old_fd = switch (io_redir.op) {
+            .IO_LESS, .IO_LESS_AND, .IO_DOUBLE_LESS, .IO_DOUBLE_LESS_DASH => os.STDIN_FILENO,
+            .IO_LESS_GREAT, .IO_GREAT, .IO_DOUBLE_GREAT, .IO_GREAT_AND, .IO_CLOBBER => os.STDOUT_FILENO,
         };
+        if (io_redir.io_num) |io_number|
+            self.old_fd = io_number;
+
+        self.duped_fd = try os.dup(self.old_fd);
+        if (self.old_fd == current_fd) return error.SameFd;
+
+        try os.dup2(current_fd, self.old_fd);
     }
 
     pub fn restoreOldFd(self: SavedIOFd) void {
-        os.dup2(self.current_fd, self.old_fd) catch |err| {
-            printError("something wrong happened dup2, {}\n", .{err});
+        os.dup2(self.duped_fd, self.old_fd) catch |err| {
+            printError("error restoring fd {}\n", .{err});
         };
+        os.close(self.duped_fd);
     }
 };

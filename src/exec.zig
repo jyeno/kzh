@@ -68,9 +68,8 @@ fn pipeline(ctl: *jobs.JobController, pline: *ast.Pipeline) !u32 {
             const pid = try os.fork();
             if (pid == 0) {
                 if (index > 0) {
-                    if (next_stdin) |stdin| {
-                        os.close(stdin);
-                    }
+                    if (next_stdin) |stdin| os.close(stdin);
+
                     if (cur_stdin.? != os.STDIN_FILENO) {
                         os.dup2(cur_stdin.?, os.STDIN_FILENO) catch {
                             os.exit(127);
@@ -95,9 +94,8 @@ fn pipeline(ctl: *jobs.JobController, pline: *ast.Pipeline) !u32 {
             const proc = jobs.Process.init(pid);
             try job.addProcess(proc);
 
-            if (cur_stdin) |stdin| {
-                os.close(stdin);
-            }
+            if (cur_stdin) |stdin| os.close(stdin);
+
             if (cur_stdout) |stdout| {
                 os.close(stdout);
                 cur_stdout = null;
@@ -124,7 +122,9 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
 
             if (simple_command.name) |word_name| {
                 if (simple_command.io_redirs) |io_redirections| {
-                    try applyProcRedirects(ctl, io_redirections);
+                    applyProcRedirects(ctl, io_redirections) catch |err| {
+                        std.debug.print("error {}\n", .{err});
+                    };
                 }
                 var argv = try ExpandedWordArray.initCapacity(ctl.allocator, 1);
                 if (simple_command.args) |args| {

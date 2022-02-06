@@ -20,13 +20,14 @@ const options = [_]Option(InitOptions){
 pub fn main() anyerror!u8 {
     const interative_mode = true;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloca = gpa.allocator();
     defer {
         const leaked = gpa.deinit();
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
+    var stack_alloc = std.heap.stackFallback(2048, gpa.allocator());
+    var allocator = stack_alloc.get();
 
-    var ctl = jobs.JobController.init(alloca);
+    var ctl = jobs.JobController.init(allocator);
     try initDefaultConf(&ctl, interative_mode);
     defer ctl.deinit();
 
