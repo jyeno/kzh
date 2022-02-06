@@ -9,16 +9,6 @@ const kzhAlias = @import("builtins/alias.zig").kzhAlias; // TODO remove this
 const exec = @import("exec.zig");
 const printError = std.debug.print;
 
-// TODO change the current way, jobcontroller only gonna have the logic necessary for it to work,
-// also it should decide if the program gonna be execute async-ish or not, that will be it, move
-// all the remaining code to exec.zig
-//
-// TODO have a context struct for data that needs to be checked/used
-// every run (like functions, envvars and such)
-
-// initialized by initGlobalController
-pub var global_controller: JobController = undefined;
-
 const Aliases = symtab.SymTab([][]const u8);
 const Functions = symtab.SymTab(ast.Command);
 const EnvVars = symtab.SymTab([]const u8);
@@ -116,6 +106,22 @@ pub const JobController = struct {
 
     pub fn putVar(self: *JobController, name: []const u8, value: []const u8) !void {
         try self.env_vars.put(name, value);
+    }
+
+    /// Creates an array of null terminated strings, copying the entries of the symbol table.
+    /// Its strings are formated as:
+    ///          "KEY_STRING=VALUE"
+    /// Where KEY_STRING is the key of the entry and VALUE is the value of the entry.
+    pub fn envp(self: *JobController, allocator: mem.Allocator) ![*:null]const ?[*:0]const u8 {
+        var array = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, self.env_vars.table.count() + 1);
+        defer array.deinit();
+
+        var it = self.env_vars.table.iterator();
+        while (it.next()) |entry| {
+            const env = try std.mem.joinZ(allocator, "=", &.{ entry.key_ptr.*, entry.value_ptr.* });
+            array.appendAssumeCapacity(env);
+        }
+        return try array.toOwnedSliceSentinel(null);
     }
 
     pub fn getAlias(self: *JobController, name: []const u8) ?[]const u32 {

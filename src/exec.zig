@@ -307,7 +307,7 @@ fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
         defer ctl.allocator.free(args);
 
         // use symtab on ctl
-        const envp = try ctl.env_vars.dupeZ(ctl.allocator);
+        const envp = try ctl.envp(ctl.allocator);
         defer ctl.allocator.free(envp);
 
         switch (std.os.execvpeZ(args[0].?, args, envp)) {

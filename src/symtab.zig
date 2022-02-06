@@ -90,27 +90,6 @@ pub fn SymTab(comptime T: type) type {
         pub fn ensureTotalCapacity(self: *Self, capacity: u32) !void {
             try self.table.ensureTotalCapacity(&self.arena_allocator.allocator, capacity);
         }
-
-        /// Creates an array of null terminated strings, copying the entries of the symbol table.
-        /// Its strings are formated as:
-        ///          "KEY_STRING=VALUE"
-        /// Where KEY_STRING is the key of the entry and VALUE is the value of the entry.
-        // TODO analize a way to optimize it
-        pub fn dupeZ(self: *Self, allocator: mem.Allocator) ![*:null]?[*:0]const u8 {
-            if (T != []const u8) {
-                @compileError("only []const u8 symtabs are allowed to use this function.");
-            }
-            var array = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, self.table.count() + 1);
-            defer array.deinit();
-            // TODO analize possibility of get parent items too
-
-            var it = self.table.iterator();
-            while (it.next()) |entry| {
-                const env = try std.mem.joinZ(allocator, "=", &[_][]const u8{ entry.key_ptr.*, entry.value_ptr.* });
-                array.appendAssumeCapacity(env);
-            }
-            return try array.toOwnedSliceSentinel(null);
-        }
     };
 }
 

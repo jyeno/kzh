@@ -48,11 +48,9 @@ pub fn main() anyerror!u8 {
 }
 
 fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
+    errdefer ctl.deinit();
     _ = interative_mode;
     _ = ctl;
-    errdefer ctl.deinit();
-    // TODO initialize ctl
-
     // use these to populate initial ctl envvars
     //     "alias",
     //     "autoload='typeset -fu'",
@@ -66,25 +64,24 @@ fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
     //     "r='fc -s'",
     //     "stop='kill -STOP'",
     // try symtab.initGlobalSymbolTable(allocator);
-    // errdefer symtab.global_symtab.deinit();
-    //
-    //     for (std.os.environ) |env| {
-    //         const equalsIdx: ?usize = blk: {
-    //             var index: usize = 0;
-    //             while (env[index] != '=' and env[index] != 0) : (index += 1) {}
-    //             // it cant be on the beginning and end of the env, if it is invalid therefore return null
-    //             break :blk if (index != 0 and env[index] != 0) index else null;
-    //         };
-    //         // TODO add even when the equalsIdx is null
-    //         if (equalsIdx) |index| {
-    //             const value = blk: {
-    //                 var end = index + 1;
-    //                 while (env[end] != 0) : (end += 1) {}
-    //                 break :blk env[index + 1 .. end];
-    //             };
-    //             try global_symtab.put(env[0..index], value);
-    //         }
-    //     }
+
+    for (std.os.environ) |env| {
+        const equalsIdx: ?usize = blk: {
+            var index: usize = 0;
+            while (env[index] != '=' and env[index] != 0) : (index += 1) {}
+            // it cant be on the beginning and end of the env, if it is invalid therefore return null
+            break :blk if (index != 0 and env[index] != 0) index else null;
+        };
+        // TODO add even when the equalsIdx is null
+        if (equalsIdx) |index| {
+            const value = blk: {
+                var end = index + 1;
+                while (env[end] != 0) : (end += 1) {}
+                break :blk env[index + 1 .. end];
+            };
+            try ctl.env_vars.put(env[0..index], value);
+        }
+    }
 }
 
 /// kzh main loop, used when the program is run in interactive mode
