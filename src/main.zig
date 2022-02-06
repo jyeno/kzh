@@ -51,29 +51,32 @@ fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
     errdefer ctl.deinit();
     _ = interative_mode;
     _ = ctl;
-    // use these to populate initial ctl envvars
-    //     "alias",
-    //     "autoload='typeset -fu'",
-    //     "functions='typeset -f'",
-    //     "hash='alias -t'",
-    //     "history='fc -l'",
-    //     "integer='typeset -i'",
-    //     "local='typeset'",
-    //     "login='exec login'",
-    //     "nohup='nohup '",
-    //     "r='fc -s'",
-    //     "stop='kill -STOP'",
-    // try symtab.initGlobalSymbolTable(allocator);
+    const keys_values = [_][]const []const u8{
+        &.{ "autoload", "typeset", "-fu" },
+        &.{ "functions", "typeset", "-f" },
+        &.{ "hash", "alias", "-t" },
+        &.{ "history", "fc", "-l" },
+        &.{ "integer", "typeset", "-i" },
+        &.{ "local", "typeset" },
+        &.{ "login", "exec", "login" },
+        &.{ "nohup", "nohup " },
+        &.{ "r", "fc", "-s" },
+        &.{ "stop", "kill", "-STOP" },
+    };
+    try ctl.aliases.table.ensureUnusedCapacity(ctl.allocator, keys_values.len);
+    inline for (keys_values) |key_value| {
+        try ctl.putAlias(key_value[0], key_value[1..]);
+    }
 
+    try ctl.env_vars.table.ensureUnusedCapacity(ctl.allocator, @intCast(u32, std.os.environ.len));
     for (std.os.environ) |env| {
-        const equalsIdx: ?usize = blk: {
+        const equals_idx: ?usize = blk: {
             var index: usize = 0;
             while (env[index] != '=' and env[index] != 0) : (index += 1) {}
             // it cant be on the beginning and end of the env, if it is invalid therefore return null
             break :blk if (index != 0 and env[index] != 0) index else null;
         };
-        // TODO add even when the equalsIdx is null
-        if (equalsIdx) |index| {
+        if (equals_idx) |index| {
             const value = blk: {
                 var end = index + 1;
                 while (env[end] != 0) : (end += 1) {}

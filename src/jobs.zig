@@ -9,7 +9,7 @@ const kzhAlias = @import("builtins/alias.zig").kzhAlias; // TODO remove this
 const exec = @import("exec.zig");
 const printError = std.debug.print;
 
-const Aliases = symtab.SymTab([][]const u8);
+const Aliases = symtab.SymTab([]const []const u8);
 const Functions = symtab.SymTab(ast.Command);
 const EnvVars = symtab.SymTab([]const u8);
 const ArrayVars = symtab.SymTab([]const []const u8);
@@ -128,7 +128,7 @@ pub const JobController = struct {
         return self.aliases.lookup(name);
     }
 
-    pub fn putAlias(self: *JobController, name: []const u8, value: []const []const u32) !void {
+    pub fn putAlias(self: *JobController, name: []const u8, value: []const []const u8) !void {
         try self.aliases.put(name, value);
     }
 
