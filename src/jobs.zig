@@ -4,15 +4,14 @@ const os = std.os;
 const ast = @import("ast.zig");
 const Command = ast.Command;
 const builtins = @import("builtins.zig").builtins;
-const symtab = @import("symtab.zig");
 const kzhAlias = @import("builtins/alias.zig").kzhAlias; // TODO remove this
 const exec = @import("exec.zig");
 const printError = std.debug.print;
 
-const Aliases = symtab.SymTab([]const []const u8);
-const Functions = symtab.SymTab(ast.Command);
-const EnvVars = symtab.SymTab([]const u8);
-const ArrayVars = symtab.SymTab([]const []const u8);
+const Aliases = std.StringHashMap([]const []const u8);
+const Functions = std.StringHashMap(ast.Command);
+const EnvVars = std.StringHashMap([]const u8);
+const ArrayVars = std.StringHashMap([]const []const u8);
 
 pub const F = struct {
     pub const EXPORT = 1 << 0; //,	/* -a: export all */
@@ -73,10 +72,10 @@ pub const JobController = struct {
     saved_fds: ?[]SavedIOFd = null,
 
     pub fn init(allocator: mem.Allocator) JobController {
-        var aliases = Aliases.init(allocator, null);
-        var funcs = Functions.init(allocator, null);
-        var env_vars = EnvVars.init(allocator, null);
-        var array_vars = ArrayVars.init(allocator, null);
+        var aliases = Aliases.init(allocator);
+        var funcs = Functions.init(allocator);
+        var env_vars = EnvVars.init(allocator);
+        var array_vars = ArrayVars.init(allocator);
         return .{
             .allocator = allocator,
             .aliases = aliases,
@@ -101,7 +100,7 @@ pub const JobController = struct {
     }
 
     pub fn lookupVar(self: *JobController, name: []const u8) ?[]const u8 {
-        return self.env_vars.lookup(name);
+        return self.env_vars.get(name);
     }
 
     pub fn putVar(self: *JobController, name: []const u8, value: []const u8) !void {
@@ -113,10 +112,10 @@ pub const JobController = struct {
     ///          "KEY_STRING=VALUE"
     /// Where KEY_STRING is the key of the entry and VALUE is the value of the entry.
     pub fn envp(self: *JobController, allocator: mem.Allocator) ![*:null]const ?[*:0]const u8 {
-        var array = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, self.env_vars.table.count() + 1);
+        var array = try std.ArrayList(?[*:0]const u8).initCapacity(allocator, self.env_vars.count() + 1);
         defer array.deinit();
 
-        var it = self.env_vars.table.iterator();
+        var it = self.env_vars.iterator();
         while (it.next()) |entry| {
             const env = try std.mem.joinZ(allocator, "=", &.{ entry.key_ptr.*, entry.value_ptr.* });
             array.appendAssumeCapacity(env);
@@ -125,7 +124,7 @@ pub const JobController = struct {
     }
 
     pub fn getAlias(self: *JobController, name: []const u8) ?[]const u32 {
-        return self.aliases.lookup(name);
+        return self.aliases.get(name);
     }
 
     pub fn putAlias(self: *JobController, name: []const u8, value: []const []const u8) !void {
@@ -133,7 +132,7 @@ pub const JobController = struct {
     }
 
     pub fn getFunc(self: *JobController, name: []const u8) ?ast.Command {
-        return self.funcs.lookup(name);
+        return self.funcs.get(name);
     }
 
     pub fn putFunc(self: *JobController, name: []const u8, value: ast.Command) !void {

@@ -2,7 +2,6 @@ const std = @import("std");
 const JobController = @import("../jobs.zig").JobController;
 const Option = @import("../builtins.zig").Option;
 const OptIterator = @import("../builtins.zig").OptIterator;
-const symtab = @import("../symtab.zig");
 const writer = std.io.getStdOut().writer();
 
 const AliasOptions = enum {

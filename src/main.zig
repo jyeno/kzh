@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = std.mem;
 const Parser = @import("parse.zig").Parser;
 const kzhExit = @import("builtins/exit.zig").kzhExit;
-const symtab = @import("symtab.zig");
 const jobs = @import("jobs.zig");
 const Option = @import("builtins.zig").Option;
 const OptIterator = @import("builtins.zig").OptIterator;
@@ -64,12 +63,12 @@ fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
         &.{ "r", "fc", "-s" },
         &.{ "stop", "kill", "-STOP" },
     };
-    try ctl.aliases.table.ensureUnusedCapacity(ctl.allocator, keys_values.len);
+    try ctl.aliases.ensureUnusedCapacity(keys_values.len);
     inline for (keys_values) |key_value| {
         try ctl.putAlias(key_value[0], key_value[1..]);
     }
 
-    try ctl.env_vars.table.ensureUnusedCapacity(ctl.allocator, @intCast(u32, std.os.environ.len));
+    try ctl.env_vars.ensureUnusedCapacity(@intCast(u32, std.os.environ.len));
     for (std.os.environ) |env| {
         const equals_idx: ?usize = blk: {
             var index: usize = 0;
@@ -131,5 +130,4 @@ test "Test All" {
     _ = @import("builtins.zig");
     _ = @import("jobs.zig");
     _ = @import("parse.zig");
-    _ = @import("symtab.zig");
 }
