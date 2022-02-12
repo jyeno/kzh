@@ -123,8 +123,6 @@ pub const WordCommand = struct {
     program: ?*Program,
     is_back_quoted: bool,
 
-    // TODO maybe,  word() ?
-
     pub fn word(self: *WordCommand) Word {
         return .{
             .impl = self,

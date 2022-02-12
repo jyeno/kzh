@@ -21,8 +21,7 @@ pub fn create(allocator: mem.Allocator, comptime T: type, data: T) !*T {
 /// Representation of a 'program'
 /// It has a body that contains one or more `CommandList`s.
 pub const Program = struct {
-    // TODO make this not a array of pointers
-    body: []*CommandList,
+    body: []CommandList,
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
@@ -42,9 +41,8 @@ pub const CommandList = struct {
 
     /// Deinitializes the memory used, takes an `allocator`, it should be the one
     /// that was used to allocate the data
-    pub fn deinit(self: *CommandList, allocator: mem.Allocator) void {
+    pub fn deinit(self: CommandList, allocator: mem.Allocator) void {
         self.and_or_cmd_list.deinit(allocator);
-        allocator.destroy(self);
     }
 };
 

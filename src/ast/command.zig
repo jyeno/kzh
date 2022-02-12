@@ -102,7 +102,7 @@ pub const SimpleCommand = struct {
 };
 
 pub const CmdGroup = struct {
-    body: []*CommandList,
+    body: []CommandList,
     kind: GroupKind,
 
     pub const GroupKind = enum {
@@ -132,8 +132,8 @@ pub const CmdGroup = struct {
 };
 
 pub const IfDecl = struct {
-    condition: []*CommandList,
-    body: []*CommandList,
+    condition: []CommandList,
+    body: []CommandList,
     else_decl: ?Command,
 
     pub fn cmd(self: *IfDecl) Command {
@@ -167,7 +167,7 @@ pub const ForDecl = struct {
     has_in: bool,
     is_selection: bool,
     list: ?[]Word,
-    body: []*CommandList,
+    body: []CommandList,
 
     pub fn cmd(self: *ForDecl) Command {
         return .{
@@ -197,8 +197,8 @@ pub const ForDecl = struct {
 
 pub const LoopDecl = struct {
     kind: LoopKind,
-    condition: []*CommandList,
-    body: []*CommandList,
+    condition: []CommandList,
+    body: []CommandList,
 
     pub const LoopKind = enum {
         WHILE,
@@ -235,7 +235,7 @@ pub const CaseDecl = struct {
 
     pub const CaseItem = struct {
         patterns: []Word,
-        body: []*CommandList,
+        body: []CommandList,
     };
 
     pub fn cmd(self: *CaseDecl) Command {

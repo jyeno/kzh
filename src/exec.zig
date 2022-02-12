@@ -18,7 +18,7 @@ pub fn program(ctl: *jobs.JobController, prog: *ast.Program) !u32 {
     return try commandListArray(ctl, prog.body);
 }
 
-fn commandListArray(ctl: *jobs.JobController, cmd_list_array: []*ast.CommandList) !u32 {
+fn commandListArray(ctl: *jobs.JobController, cmd_list_array: []ast.CommandList) !u32 {
     // TODO improve and fix behaviour
     var last_status: u32 = 0;
     for (cmd_list_array) |cmd_list| {
@@ -188,42 +188,93 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
         },
         .FUNC_DECL => cmd: {
             const func_decl = cmd.cast(.FUNC_DECL).?;
+            // const cmd_body = cmd: {
+            //     switch (func_decl.body.kind) {
+            //         .SIMPLE_COMMAND => ,
+            //         .IF_DECL => {},
+            //         .LOOP_DECL => {},
+            //         .CASE_DECL => {},
+            //         .FOR_DECL => {},
+            //         .CMD_GROUP => {},
+            //         .FUNC_DECL => {},
+            //     }
+            // };
+            // try ctl.putFunc(func_decl.name, cmd_body);
+            // TODO make dupe for command types
             try ctl.putFunc(func_decl.name, func_decl.body);
             break :cmd 0;
         },
     };
 }
 
-// have a word-kinda function that returns a []const u8, and also receives a u32 opcional pointer
-// to store some result if needed, then I should have a function that can evaluates more than one char at time
+const WordResult = union(enum) {
+    empty: void,
+    single_str: []const u8,
+    multiple_str: []const []const u8,
+};
 
+// TODO move to expand_word.zig
 fn expandWord(ctl: *jobs.JobController, word_arg: ast.Word, fields: *ExpandedWordArray) !u32 {
     // TODO evalTilde
     // TODO split fields
     // TODO expand pathnames
     // try splitFields(fields, word_ref);
     var result: u32 = 0;
-    const slice = try execWord(ctl, word_arg, &result);
-    defer ctl.allocator.free(slice);
-    try fields.appendSlice(slice);
+    switch (try execWord(ctl, word_arg, &result)) {
+        .multiple_str => |slice| {
+            defer ctl.allocator.free(slice);
+            std.debug.print("added slice: {s}\n", .{slice});
+            try fields.appendSlice(slice);
+        },
+        .single_str => |str| try fields.append(str),
+        else => unreachable,
+    }
     return result;
 }
 
-// maybe, return word result, then evaluate it as single result or not
-// then split fields could receive a word, and then do its thing, also maybe have some kind of recursion if needed
-// what if the expandWord does the work of splitFields? that had be cool
-//
-// return array of string, could be one or more than that, then the split fields things do its work
+fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) anyerror!WordResult {
+    return switch (word_arg.kind) {
+        .STRING => WordResult{ .single_str = word_arg.cast(.STRING).?.str },
+        .LIST => list: {
+            // if double quoted, then merge all of the content into one []const u8
+            // if not, then add all of them separatedly
+            const word_list = word_arg.cast(.LIST).?;
+            var word_array = std.ArrayList([]const u8).init(ctl.allocator);
+            defer word_array.deinit();
 
-fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) ![][]const u8 {
-    // maybe change it, put a arraylist with one of starting capacity, [:0]const u8, this string must be duped
-    // then this switch should not immediataly return
-    var word_array = try std.ArrayList([]const u8).initCapacity(ctl.allocator, 1);
-    switch (word_arg.kind) {
-        .STRING => word_array.appendAssumeCapacity(word_arg.cast(.STRING).?.str),
-        .LIST => unreachable,
+            var intern_char_array = std.ArrayList(u8).init(ctl.allocator);
+            defer intern_char_array.deinit();
+            // TODO add everything to one arraylist, then checks if is_double_quoted, true then merge, not then dont
+            for (word_list.items) |word_item| {
+                switch (try execWord(ctl, word_item, result)) {
+                    .multiple_str => |slice| {
+                        defer ctl.allocator.free(slice);
+                        if (word_list.is_double_quoted) {
+                            try intern_char_array.ensureUnusedCapacity(slice.len);
+                            for (slice) |str| try intern_char_array.appendSlice(str);
+                        } else {
+                            try word_array.appendSlice(slice);
+                        }
+                    },
+                    .single_str => |str| {
+                        if (word_list.is_double_quoted) {
+                            try intern_char_array.ensureUnusedCapacity(str.len);
+                            for (str) |char| intern_char_array.appendAssumeCapacity(char);
+                        } else {
+                            try word_array.append(str);
+                        }
+                    },
+                    else => unreachable, // TODO implement allocating empty string only when is_double_quoted
+                }
+            }
+            if (word_list.is_double_quoted) {
+                break :list WordResult{ .single_str = intern_char_array.toOwnedSlice() };
+            } else {
+                break :list WordResult{ .multiple_str = word_array.toOwnedSlice() };
+            }
+        },
         .PARAMETER => unreachable,
-        .COMMAND => {
+        .COMMAND => cmd: {
             const word_cmd = word_arg.cast(.COMMAND).?;
             const fds = try os.pipe();
             errdefer {
@@ -250,22 +301,14 @@ fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) ![][]con
             // TODO improve it
             var data = try output_handle.reader().readUntilDelimiterOrEofAlloc(ctl.allocator, 0, 4096);
             if (data) |buffer| {
-                defer ctl.allocator.free(buffer);
-                var iter = std.mem.tokenize(u8, buffer, " ");
-                while (iter.next()) |str| {
-                    try word_array.append(try ctl.allocator.dupe(u8, str));
-                }
-                // const trimmed_buf = std.mem.trimRight(u8, buffer, "\n");
-                // const word_str = try ast.create(ctl.allocator, ast.WordString, .{ .str = trimmedBuf });
-                // word_arg.* = word_str.word();
+                result.* = os.waitpid(pid, 0).status;
+                break :cmd WordResult{ .single_str = buffer }; // TODO trim end of line
             } else {
-                word_array.appendAssumeCapacity("");
+                break :cmd .empty;
             }
-            result.* = os.waitpid(pid, 0).status;
         },
         .ARITHMETIC => unreachable,
-    }
-    return word_array.toOwnedSlice();
+    };
 }
 
 fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
@@ -277,7 +320,6 @@ fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
     } else if (builtins.get(argv[0])) |builtin| {
         return builtin(ctl, argv);
     }
-    // TODO change whole thing, maybe use 0 terminated strings, has it would evade more allocations here
     var argvZ = try std.ArrayList(?[*:0]const u8).initCapacity(ctl.allocator, argv.len);
     defer {
         var i: usize = 0;
@@ -312,7 +354,7 @@ fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
             error.AccessDenied => printError("kzh: {s}: cannot execute - Permission denied\n", .{argv[0]}),
             else => |err| printError("some problem happened: {}\n", .{err}),
         }
-        os.exit(1); // if got here, then some problem happened, TODO proper handling
+        os.exit(1);
     } else {
         _ = std.os.waitpid(pid, 0);
         // printError("\nreturned process: {}\n", .{ret});

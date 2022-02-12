@@ -69,7 +69,7 @@ pub const Parser = struct {
     /// complete_command  : list separator
     ///                   | list
     fn program(parser: *Parser) !*ast.Program {
-        var command_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
+        var command_list_array = std.ArrayList(ast.CommandList).init(parser.allocator);
         defer command_list_array.deinit();
 
         while (try parser.commandList()) |cmd_list| {
@@ -83,18 +83,17 @@ pub const Parser = struct {
 
     /// list  : list separator_op and_or
     ///       | and_or
-    fn commandList(parser: *Parser) !?*ast.CommandList {
+    fn commandList(parser: *Parser) !?ast.CommandList {
         // TODO fix behavior, improve logic
         if (try parser.andOrCmdList()) |and_or_cmd_list| {
-            var command_list: ast.CommandList = .{ .and_or_cmd_list = and_or_cmd_list };
-
+            var is_async = false;
             if (parser.separator()) |sep| {
                 if (sep == '&') {
-                    command_list.is_async = true;
+                    is_async = true;
                 }
             }
 
-            return try ast.create(parser.allocator, ast.CommandList, command_list);
+            return ast.CommandList{ .and_or_cmd_list = and_or_cmd_list, .is_async = is_async };
         }
         return null;
     }
@@ -306,10 +305,10 @@ pub const Parser = struct {
     ///                | linebreak term separator
     /// term           : term separator and_or
     ///                | and_or
-    fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]*ast.CommandList {
+    fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]ast.CommandList {
         // TODO read until endToken, if it is on the end, read new line
         parser.linebreak();
-        var cmd_list_array = std.ArrayList(*ast.CommandList).init(parser.allocator);
+        var cmd_list_array = std.ArrayList(ast.CommandList).init(parser.allocator);
         defer {
             for (cmd_list_array.items) |cmd_list| {
                 cmd_list.deinit(parser.allocator);
@@ -320,14 +319,9 @@ pub const Parser = struct {
         while (try parser.andOrCmdList()) |and_or_cmd| {
             // TODO here_document
             if (parser.separator()) |sep| {
-                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{
-                    .and_or_cmd_list = and_or_cmd,
-                    .is_async = sep == '&',
-                }));
+                try cmd_list_array.append(.{ .and_or_cmd_list = and_or_cmd, .is_async = sep == '&' });
             } else {
-                try cmd_list_array.append(try ast.create(parser.allocator, ast.CommandList, .{
-                    .and_or_cmd_list = and_or_cmd,
-                }));
+                try cmd_list_array.append(.{ .and_or_cmd_list = and_or_cmd });
             }
         }
         if (cmd_list_array.items.len > 0) {
@@ -402,7 +396,7 @@ pub const Parser = struct {
     }
 
     /// do_group : Do compound_list Done   /* Apply rule 6 */
-    fn doGroup(parser: *Parser) errors!?[]*ast.CommandList {
+    fn doGroup(parser: *Parser) errors!?[]ast.CommandList {
         if (!parser.consumeToken("do")) {
             return null;
         }
