@@ -242,32 +242,24 @@ fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) anyerror
             var word_array = std.ArrayList([]const u8).init(ctl.allocator);
             defer word_array.deinit();
 
-            var intern_char_array = std.ArrayList(u8).init(ctl.allocator);
-            defer intern_char_array.deinit();
-            // TODO add everything to one arraylist, then checks if is_double_quoted, true then merge, not then dont
             for (word_list.items) |word_item| {
                 switch (try execWord(ctl, word_item, result)) {
                     .multiple_str => |slice| {
                         defer ctl.allocator.free(slice);
-                        if (word_list.is_double_quoted) {
-                            try intern_char_array.ensureUnusedCapacity(slice.len);
-                            for (slice) |str| try intern_char_array.appendSlice(str);
-                        } else {
-                            try word_array.appendSlice(slice);
-                        }
+                        try word_array.appendSlice(slice);
                     },
-                    .single_str => |str| {
-                        if (word_list.is_double_quoted) {
-                            try intern_char_array.ensureUnusedCapacity(str.len);
-                            for (str) |char| intern_char_array.appendAssumeCapacity(char);
-                        } else {
-                            try word_array.append(str);
-                        }
-                    },
+                    .single_str => |str| try word_array.append(str),
                     else => unreachable, // TODO implement allocating empty string only when is_double_quoted
                 }
             }
+
             if (word_list.is_double_quoted) {
+                var intern_char_array = std.ArrayList(u8).init(ctl.allocator);
+                defer intern_char_array.deinit();
+                for (word_array.items) |str| {
+                    try intern_char_array.ensureUnusedCapacity(str.len);
+                    for (str) |char| intern_char_array.appendAssumeCapacity(char);
+                }
                 break :list WordResult{ .single_str = intern_char_array.toOwnedSlice() };
             } else {
                 break :list WordResult{ .multiple_str = word_array.toOwnedSlice() };
@@ -302,7 +294,14 @@ fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) anyerror
             var data = try output_handle.reader().readUntilDelimiterOrEofAlloc(ctl.allocator, 0, 4096);
             if (data) |buffer| {
                 result.* = os.waitpid(pid, 0).status;
-                break :cmd WordResult{ .single_str = buffer }; // TODO trim end of line
+                // trim newlines at end
+                var end_size: usize = buffer.len;
+                while (buffer[end_size - 1] == '\n') : (end_size -= 1) {}
+                if (end_size < buffer.len) {
+                    ctl.allocator.free(buffer[end_size..buffer.len]);
+                }
+
+                break :cmd WordResult{ .single_str = buffer[0..end_size] };
             } else {
                 break :cmd .empty;
             }
