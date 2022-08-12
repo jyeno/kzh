@@ -1,6 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
-const Parser = @import("parse.zig").Parser;
+const Parser = @import("Parser.zig");
 const kzhExit = @import("builtins/exit.zig").kzhExit;
 const jobs = @import("jobs.zig");
 const Option = @import("builtins.zig").Option;
@@ -23,8 +23,9 @@ pub fn main() anyerror!u8 {
         const leaked = gpa.deinit();
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
-    var stack_alloc = std.heap.stackFallback(2048, gpa.allocator());
-    var allocator = stack_alloc.get();
+    var allocator = gpa.allocator();
+    // var stack_alloc = std.heap.stackFallback(2048, gpa.allocator());
+    // var allocator = stack_alloc.get();
 
     var ctl = jobs.JobController.init(allocator);
     try initDefaultConf(&ctl, interative_mode);
@@ -97,6 +98,7 @@ fn kzhLoop(ctl: *jobs.JobController) !void {
         std.debug.print("{}> ", .{last_status});
 
         if (try stdin.readUntilDelimiterOrEof(&algo, '\n')) |input| {
+            // TODO do not return a pointer
             var parser = Parser.init(ctl.allocator, input);
             var program = parser.parse() catch |err| {
                 std.debug.print("loop err: {}\n", .{err});
@@ -129,5 +131,5 @@ test "Test All" {
     _ = @import("ast.zig");
     _ = @import("builtins.zig");
     _ = @import("jobs.zig");
-    _ = @import("parse.zig");
+    _ = @import("Parser.zig");
 }

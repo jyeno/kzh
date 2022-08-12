@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 const mem = std.mem;
-const Parser = @import("../parse.zig").Parser;
-const ast = @import("../ast.zig");
+const Parser = @import("../../Parser.zig");
+const ast = @import("../../ast.zig");
 
 test "Parse test script" {
     // TODO change 'SERVICE' and 'TYPE' to double quotes
