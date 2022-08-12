@@ -113,8 +113,8 @@ fn pipeline(ctl: *jobs.JobController, pline: *ast.Pipeline) !u32 {
 }
 
 fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
-    return switch (cmd.kind) {
-        .SIMPLE_COMMAND => cmd: {
+    switch (cmd.kind) {
+        .SIMPLE_COMMAND => {
             const simple_command = cmd.cast(.SIMPLE_COMMAND).?;
             defer ctl.restoreFds();
 
@@ -134,14 +134,14 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
                 } else {
                     _ = try expandWord(ctl, word_name, &argv);
                 }
-                break :cmd try runProcess(ctl, argv.toOwnedSlice());
+                return try runProcess(ctl, argv.toOwnedSlice());
             }
             unreachable; // TODO include others possibilities of a simple command
         },
-        .CMD_GROUP => cmd: {
+        .CMD_GROUP => {
             const cmd_group = cmd.cast(.CMD_GROUP).?;
             switch (cmd_group.kind) {
-                .BRACE_GROUP => break :cmd try commandListArray(ctl, cmd_group.body),
+                .BRACE_GROUP => return try commandListArray(ctl, cmd_group.body),
                 .SUBSHELL => {
                     const pid = try os.fork();
                     if (pid == 0) {
@@ -149,7 +149,7 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
                         os.exit(@intCast(u8, result));
                     }
                     const result = os.waitpid(pid, 0).status;
-                    break :cmd result; // TODO add shell process
+                    return result; // TODO add shell process
                 },
             }
         },
@@ -159,7 +159,7 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
         .CASE_DECL => {
             unreachable;
         },
-        .LOOP_DECL => cmd: {
+        .LOOP_DECL => {
             // TODO integrate with ctl (jobcontroller)
             var result: u32 = 0;
             const loop_decl = cmd.cast(.LOOP_DECL).?;
@@ -170,22 +170,22 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
                 {
                     result = try commandListArray(ctl, loop_decl.body);
                 } else {
-                    break :cmd result;
+                    return result;
                 }
             }
         },
-        .IF_DECL => cmd: {
+        .IF_DECL => {
             const if_decl = cmd.cast(.IF_DECL).?;
             const result = try commandListArray(ctl, if_decl.condition);
             if (result == 0) {
-                break :cmd try commandListArray(ctl, if_decl.body);
+                return try commandListArray(ctl, if_decl.body);
             } else if (if_decl.else_decl) |else_decl| {
-                break :cmd try command(ctl, else_decl);
+                return try command(ctl, else_decl);
             } else {
-                break :cmd 0;
+                return 0;
             }
         },
-        .FUNC_DECL => cmd: {
+        .FUNC_DECL => {
             const func_decl = cmd.cast(.FUNC_DECL).?;
             // const cmd_body = cmd: {
             //     switch (func_decl.body.kind) {
@@ -201,9 +201,9 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
             // try ctl.putFunc(func_decl.name, cmd_body);
             // TODO make dupe for command types
             try ctl.putFunc(func_decl.name, func_decl.body);
-            break :cmd 0;
+            return 0;
         },
-    };
+    }
 }
 
 fn runProcess(ctl: *jobs.JobController, argv: []const []const u8) !u32 {
