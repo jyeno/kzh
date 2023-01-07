@@ -11,7 +11,7 @@ const csi = esc ++ "[";
 pub const Word = struct {
     impl: *anyopaque,
     kind: WordKind,
-    deinitFn: fn (*anyopaque, mem.Allocator) void,
+    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     pub const WordKind = enum {
         STRING,
@@ -20,7 +20,7 @@ pub const Word = struct {
         ARITHMETIC,
         LIST,
 
-        pub fn Type(self: WordKind) type {
+        pub fn Type(comptime self: WordKind) type {
             return switch (self) {
                 .STRING => WordString,
                 .PARAMETER => WordParameter,

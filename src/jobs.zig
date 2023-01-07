@@ -4,7 +4,6 @@ const os = std.os;
 const ast = @import("ast.zig");
 const Command = ast.Command;
 const builtins = @import("builtins.zig").builtins;
-const kzhAlias = @import("builtins/alias.zig").kzhAlias; // TODO remove this
 const exec = @import("exec.zig");
 const printError = std.debug.print;
 
@@ -14,6 +13,7 @@ const EnvVars = std.StringHashMap([]const u8);
 const ArrayVars = std.StringHashMap([]const []const u8);
 
 pub const F = struct {
+    // use padded enum with booleans for each
     pub const EXPORT = 1 << 0; //,	/* -a: export all */
     pub const BRACEEXPAND = 1 << 1; //,	/* enable {} globbing */
     pub const BGNICE = 1 << 2; //,	/* bgnice */
@@ -123,7 +123,11 @@ pub const JobController = struct {
         return try array.toOwnedSliceSentinel(null);
     }
 
-    pub fn getAlias(self: *JobController, name: []const u8) ?[]const u32 {
+    pub fn getAliases(self: *JobController) *const Aliases {
+        return &self.aliases;
+    }
+
+    pub fn getAlias(self: *JobController, name: []const u8) ?[]const []const u8 {
         return self.aliases.get(name);
     }
 

@@ -9,11 +9,10 @@ test "Parse Brace Group and SubShell" {
         const command_string = "{ echo hi; echo something else; }";
         var parser = Parser.init(testing.allocator, command_string);
         const program = try parser.parse();
-        defer program.deinit(testing.allocator);
+        defer parser.deinit();
 
         const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
         try testing.expect(pipeline.commands.len == 1);
-
         try testing.expect(pipeline.commands[0].kind == .CMD_GROUP);
         try testing.expect(pipeline.commands[0].cast(.CMD_GROUP).?.body.len == 2);
     }
@@ -26,11 +25,10 @@ test "Parse Brace Group and SubShell" {
         ;
         var parser = Parser.init(testing.allocator, command_string);
         const program = try parser.parse();
-        defer program.deinit(testing.allocator);
+        defer parser.deinit();
 
         const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
         try testing.expect(pipeline.commands.len == 1);
-
         try testing.expect(pipeline.commands[0].kind == .CMD_GROUP);
         try testing.expect(pipeline.commands[0].cast(.CMD_GROUP).?.body.len == 3);
     }
@@ -59,7 +57,7 @@ test "Parse Loop Declaration" {
         ;
         var parser = Parser.init(testing.allocator, command_string);
         const program = try parser.parse();
-        defer program.deinit(testing.allocator);
+        defer parser.deinit();
 
         const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
         try testing.expect(pipeline.commands.len == 1);
@@ -83,7 +81,7 @@ test "Parse Loop Declaration" {
         ;
         var parser = Parser.init(testing.allocator, command_string);
         const program = try parser.parse();
-        defer program.deinit(testing.allocator);
+        defer parser.deinit();
 
         const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
         try testing.expect(pipeline.commands.len == 1);
@@ -104,7 +102,7 @@ test "Parse Simple Command" {
     const command_string = "echo hi";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 1);
@@ -127,7 +125,7 @@ test "Parse Simple Command with IO redirection" {
     const command_string1 = "ls >/dev/null 2>&1";
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
-    defer program1.deinit(testing.allocator);
+    defer parser1.deinit();
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -155,7 +153,7 @@ test "Parse Simple Command Assignments" {
     const command_string1 = "some=thing else=where ls";
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
-    defer program1.deinit(testing.allocator);
+    defer parser1.deinit();
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -175,7 +173,7 @@ test "Parse Simple Command Assignments" {
     const command_string2 = "only=envvar";
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
-    defer program2.deinit(testing.allocator);
+    defer parser2.deinit();
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name == null);

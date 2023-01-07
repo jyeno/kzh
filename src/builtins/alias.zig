@@ -5,7 +5,9 @@ const OptIterator = @import("../builtins.zig").OptIterator;
 const writer = std.io.getStdOut().writer();
 
 const AliasOptions = enum {
-    BRUH,
+    PREFIX_PRINT,
+    TRACKED,
+    TRACKED_RESET,
 };
 
 /// alias [-d | -t [-r] | +-x] [-p] [+] [name [=value] ...]

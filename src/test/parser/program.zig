@@ -8,7 +8,7 @@ test "Parse Command List Separator" {
     const command_string = "echo oi\nprint test; builtin pwd &";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const cmd_array = program.body;
     try testing.expect(cmd_array.len == 3);
@@ -31,7 +31,7 @@ test "Parse And Or Cmd List" {
     const command_string = "pgrep kzh && echo kzh is running || echo kzh is not running";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     try testing.expect(program.body.len == 1);
 
@@ -56,7 +56,7 @@ test "Parse Pipeline" {
 
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 3);

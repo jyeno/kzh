@@ -50,7 +50,7 @@ pub const CommandList = struct {
 pub const AndOrCmdList = struct {
     impl: *anyopaque,
     kind: AndOrCmdListKind,
-    deinitFn: fn (*anyopaque, mem.Allocator) void,
+    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     /// And Or Command List type representation
     pub const AndOrCmdListKind = enum(u1) {
@@ -59,7 +59,7 @@ pub const AndOrCmdList = struct {
         /// command '&&' or '||' command...
         BINARY_OP,
 
-        pub fn Type(self: AndOrCmdListKind) type {
+        pub fn Type(comptime self: AndOrCmdListKind) type {
             return switch (self) {
                 .PIPELINE => Pipeline,
                 .BINARY_OP => BinaryOp,

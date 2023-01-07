@@ -21,7 +21,6 @@ const options = [_]Option(PwdOptions){
 /// the logical path is printed. If the -P option is used or the physical option is set,
 /// the path determined from the filesystem is printed.
 pub fn kzhPwd(ctl: *JobController, args: []const []const u8) u8 {
-    _ = ctl;
     var resolve_symlinks = false; // default behavior, TODO get physical option
 
     var it = OptIterator(PwdOptions).init(&options, args);

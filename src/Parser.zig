@@ -36,7 +36,6 @@
 //! %token  In
 //!        'in'
 
-// TODO: maybe create parse/word.zig and parse/command.zig
 // TODO: create errors instead of only returning null on some functions
 const std = @import("std");
 const mem = std.mem;
@@ -51,13 +50,17 @@ const Parser = @This();
 
 /// source is not owned by the parser
 source: []const u8,
-allocator: mem.Allocator,
+arena: std.heap.ArenaAllocator,
 currentPos: usize = 0,
 currentSymbol: ?Symbol = null,
 
 /// Initializes the parser
 pub fn init(allocator: mem.Allocator, source: []const u8) Parser {
-    return Parser{ .allocator = allocator, .source = source };
+    return Parser{ .arena = std.heap.ArenaAllocator.init(allocator), .source = source };
+}
+
+pub fn deinit(parser: *Parser) void {
+    parser.arena.deinit();
 }
 
 /// Generates an Abstract Syntax Tree based on the tokens received using
@@ -69,15 +72,15 @@ pub fn parse(parser: *Parser) !*ast.Program {
 /// complete_command  : list separator
 ///                   | list
 fn program(parser: *Parser) !*ast.Program {
-    var command_list_array = std.ArrayList(ast.CommandList).init(parser.allocator);
+    var command_list_array = std.ArrayList(ast.CommandList).init(parser.arena.allocator());
     defer command_list_array.deinit();
 
     while (try parser.commandList()) |cmd_list| {
         try command_list_array.append(cmd_list);
     }
 
-    return try ast.create(parser.allocator, ast.Program, .{
-        .body = command_list_array.toOwnedSlice(),
+    return try ast.create(parser.arena.allocator(), ast.Program, .{
+        .body = try command_list_array.toOwnedSlice(),
     });
 }
 
@@ -142,7 +145,7 @@ fn andOrCmdList(parser: *Parser) errors!?AndOrCmdList {
         }
         parser.linebreak();
         if (try parser.andOrCmdList()) |and_or_right| {
-            return (try ast.create(parser.allocator, ast.BinaryOp, .{
+            return (try ast.create(parser.arena.allocator(), ast.BinaryOp, .{
                 .left = pl,
                 .right = and_or_right,
                 .kind = bin_op_kind,
@@ -162,7 +165,7 @@ fn andOrCmdList(parser: *Parser) errors!?AndOrCmdList {
 /// pipe_sequence  : command
 ///                | pipe_sequence '|' linebreak command
 fn pipeline(parser: *Parser) errors!?AndOrCmdList {
-    var command_array = std.ArrayList(ast.Command).init(parser.allocator);
+    var command_array = std.ArrayList(ast.Command).init(parser.arena.allocator());
     defer command_array.deinit();
 
     const has_bang = parser.consumeToken("!");
@@ -180,8 +183,8 @@ fn pipeline(parser: *Parser) errors!?AndOrCmdList {
         }
     }
 
-    return (try ast.create(parser.allocator, ast.Pipeline, .{
-        .commands = command_array.toOwnedSlice(),
+    return (try ast.create(parser.arena.allocator(), ast.Pipeline, .{
+        .commands = try command_array.toOwnedSlice(),
         .has_bang = has_bang,
     })).andOrCmd();
 }
@@ -218,7 +221,7 @@ fn funcDeclaration(parser: *Parser) errors!?Command {
             const char = strPeek[n - 1];
             if (char == '(') {
                 break;
-            } else if (!std.ascii.isBlank(char)) {
+            } else if (!std.ascii.isWhitespace(char)) {
                 return null;
             }
         } else {
@@ -234,19 +237,19 @@ fn funcDeclaration(parser: *Parser) errors!?Command {
     }
     parser.linebreak();
     if (try parser.compoundCommand()) |cmd| {
-        var io_array = std.ArrayList(IORedir).init(parser.allocator);
+        var io_array = std.ArrayList(IORedir).init(parser.arena.allocator());
         defer io_array.deinit();
         while (try parser.IORedirect()) |io_redir| {
             try io_array.append(io_redir);
         }
         if (io_array.items.len > 0) {
-            return (try ast.create(parser.allocator, ast.FuncDecl, .{
+            return (try ast.create(parser.arena.allocator(), ast.FuncDecl, .{
                 .name = name,
                 .body = cmd,
-                .io_redirs = io_array.toOwnedSlice(),
+                .io_redirs = try io_array.toOwnedSlice(),
             })).cmd();
         } else {
-            return (try ast.create(parser.allocator, ast.FuncDecl, .{
+            return (try ast.create(parser.arena.allocator(), ast.FuncDecl, .{
                 .name = name,
                 .body = cmd,
             })).cmd();
@@ -292,7 +295,7 @@ fn cmdGroup(parser: *Parser) errors!?Command {
     if (try parser.compoundList(closing_char)) |body| {
         // TODO read newline until lchar
         const cmd_group_kind: ast.CmdGroup.GroupKind = if (closing_char[0] == '}') .BRACE_GROUP else .SUBSHELL;
-        const cmd_group = try ast.create(parser.allocator, ast.CmdGroup, .{
+        const cmd_group = try ast.create(parser.arena.allocator(), ast.CmdGroup, .{
             .body = body,
             .kind = cmd_group_kind,
         });
@@ -308,10 +311,10 @@ fn cmdGroup(parser: *Parser) errors!?Command {
 fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]ast.CommandList {
     // TODO read until endToken, if it is on the end, read new line
     parser.linebreak();
-    var cmd_list_array = std.ArrayList(ast.CommandList).init(parser.allocator);
+    var cmd_list_array = std.ArrayList(ast.CommandList).init(parser.arena.allocator());
     defer {
         for (cmd_list_array.items) |cmd_list| {
-            cmd_list.deinit(parser.allocator);
+            cmd_list.deinit(parser.arena.allocator());
         }
         cmd_list_array.deinit();
     }
@@ -328,7 +331,7 @@ fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]ast.CommandLis
         if (endToken != null and !parser.consumeToken(endToken.?)) {
             // return error.ExpectedToken;
         }
-        return cmd_list_array.toOwnedSlice();
+        return try cmd_list_array.toOwnedSlice();
     }
     return null;
 }
@@ -357,7 +360,7 @@ fn forDeclaration(parser: *Parser) errors!?Command {
     parser.linebreak();
     const has_in = parser.consumeToken("in");
     const for_list: ?[]Word = blk: {
-        var word_array = std.ArrayList(Word).init(parser.allocator);
+        var word_array = std.ArrayList(Word).init(parser.arena.allocator());
         defer word_array.deinit();
         if (has_in) {
             // wordlist
@@ -377,13 +380,13 @@ fn forDeclaration(parser: *Parser) errors!?Command {
         if (word_array.items.len > 0) {
             // TODO error if has_sep is false
             _ = has_sep;
-            break :blk word_array.toOwnedSlice();
+            break :blk try word_array.toOwnedSlice();
         } else {
             break :blk null;
         }
     };
     if (try parser.doGroup()) |body| {
-        return (try ast.create(parser.allocator, ast.ForDecl, .{
+        return (try ast.create(parser.arena.allocator(), ast.ForDecl, .{
             .name = name,
             .has_in = has_in,
             .list = for_list,
@@ -425,19 +428,19 @@ fn caseDeclaration(parser: *Parser) errors!?Command {
         if (parser.consumeToken("in")) {
             parser.linebreak();
 
-            var items = std.ArrayList(ast.CaseDecl.CaseItem).init(parser.allocator);
+            var items = std.ArrayList(ast.CaseDecl.CaseItem).init(parser.arena.allocator());
             // wrong logic
             while (!parser.consumeToken("esac")) {
                 try items.append(try parser.caseItemDeclaration());
                 // TODO optional ;; on last item
             }
 
-            return (try ast.create(parser.allocator, ast.CaseDecl, .{
+            return (try ast.create(parser.arena.allocator(), ast.CaseDecl, .{
                 .word = word_value,
-                .items = items.toOwnedSlice(),
+                .items = try items.toOwnedSlice(),
             })).cmd();
         }
-        word_value.deinit(parser.allocator);
+        word_value.deinit(parser.arena.allocator());
     }
     return null;
 }
@@ -467,15 +470,15 @@ fn ifDeclaration(parser: *Parser) errors!?Command {
     if (try parser.compoundList("then")) |condition| {
         errdefer {
             for (condition) |cmd_list| {
-                cmd_list.deinit(parser.allocator);
+                cmd_list.deinit(parser.arena.allocator());
             }
-            parser.allocator.free(condition);
+            parser.arena.allocator().free(condition);
         }
         if (try parser.compoundList(null)) |body| {
             const else_decl = try parser.elseDeclaration();
 
             if (parser.consumeToken("fi")) {
-                return (try ast.create(parser.allocator, ast.IfDecl, .{
+                return (try ast.create(parser.arena.allocator(), ast.IfDecl, .{
                     .condition = condition,
                     .body = body,
                     .else_decl = else_decl,
@@ -495,19 +498,19 @@ fn elseDeclaration(parser: *Parser) errors!?Command {
         if (try parser.compoundList("then")) |condition| {
             errdefer {
                 for (condition) |cmd_list| {
-                    cmd_list.deinit(parser.allocator);
+                    cmd_list.deinit(parser.arena.allocator());
                 }
-                parser.allocator.free(condition);
+                parser.arena.allocator().free(condition);
             }
             if (try parser.compoundList(null)) |body| {
                 errdefer {
                     for (body) |cmd_list| {
-                        cmd_list.deinit(parser.allocator);
+                        cmd_list.deinit(parser.arena.allocator());
                     }
-                    parser.allocator.free(body);
+                    parser.arena.allocator().free(body);
                 }
                 const else_decl = try parser.elseDeclaration();
-                return (try ast.create(parser.allocator, ast.IfDecl, .{
+                return (try ast.create(parser.arena.allocator(), ast.IfDecl, .{
                     .condition = condition,
                     .body = body,
                     .else_decl = else_decl,
@@ -516,7 +519,7 @@ fn elseDeclaration(parser: *Parser) errors!?Command {
         }
     } else if (parser.consumeToken("else")) {
         if (try parser.compoundList(null)) |body| {
-            return (try ast.create(parser.allocator, ast.CmdGroup, .{
+            return (try ast.create(parser.arena.allocator(), ast.CmdGroup, .{
                 .body = body,
                 .kind = .BRACE_GROUP,
             })).cmd();
@@ -540,12 +543,12 @@ fn loopDeclaration(parser: *Parser) errors!?Command {
     if (try parser.compoundList(null)) |condition| {
         errdefer {
             for (condition) |cmd_list| {
-                cmd_list.deinit(parser.allocator);
+                cmd_list.deinit(parser.arena.allocator());
             }
-            parser.allocator.free(condition);
+            parser.arena.allocator().free(condition);
         }
         if (try parser.doGroup()) |body| {
-            return (try ast.create(parser.allocator, ast.LoopDecl, .{
+            return (try ast.create(parser.arena.allocator(), ast.LoopDecl, .{
                 .condition = condition,
                 .body = body,
                 .kind = loop_kind,
@@ -561,12 +564,12 @@ fn loopDeclaration(parser: *Parser) errors!?Command {
 ///                 | cmd_name cmd_suffix
 ///                 | cmd_name
 fn simpleCommand(parser: *Parser) errors!?ast.Command {
-    var cmd: ast.SimpleCommand = undefined;
+    var cmd: ast.SimpleCommand = .{ .name = null };
     try parser.cmdPrefix(&cmd);
     cmd.name = try parser.cmdName();
     if (!cmd.isEmpty()) {
         try parser.cmdArgs(&cmd);
-        return (try ast.create(parser.allocator, ast.SimpleCommand, cmd)).cmd();
+        return (try ast.create(parser.arena.allocator(), ast.SimpleCommand, cmd)).cmd();
     }
     return null;
 }
@@ -576,9 +579,9 @@ fn simpleCommand(parser: *Parser) errors!?ast.Command {
 ///             | ASSIGNMENT_WORD
 ///             | cmd_prefix ASSIGNMENT_WORD
 fn cmdPrefix(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
-    var io_redir_array = std.ArrayList(IORedir).init(parser.allocator);
+    var io_redir_array = std.ArrayList(IORedir).init(parser.arena.allocator());
     defer io_redir_array.deinit();
-    var assigns_array = std.ArrayList(Assign).init(parser.allocator);
+    var assigns_array = std.ArrayList(Assign).init(parser.arena.allocator());
     defer assigns_array.deinit();
 
     while (true) {
@@ -592,10 +595,10 @@ fn cmdPrefix(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
     }
 
     if (io_redir_array.items.len > 0) {
-        cmd.io_redirs = io_redir_array.toOwnedSlice();
+        cmd.io_redirs = try io_redir_array.toOwnedSlice();
     }
     if (assigns_array.items.len > 0) {
-        cmd.assigns = assigns_array.toOwnedSlice();
+        cmd.assigns = try assigns_array.toOwnedSlice();
     }
 }
 
@@ -640,7 +643,7 @@ fn cmdName(parser: *Parser) errors!?Word {
             _ = void_value; // do nothing
         } else {
             const str = parser.readToken(word_size);
-            return (try ast.create(parser.allocator, ast.WordString, .{ .str = str.? })).word();
+            return (try ast.create(parser.arena.allocator(), ast.WordString, .{ .str = str.? })).word();
         }
     }
     return null;
@@ -651,12 +654,12 @@ fn cmdName(parser: *Parser) errors!?Word {
 ///             | WORD
 ///             | cmd_suffix WORD
 fn cmdArgs(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
-    var word_array = std.ArrayList(Word).init(parser.allocator);
+    var word_array = std.ArrayList(Word).init(parser.arena.allocator());
     defer word_array.deinit();
     var io_redir_array = if (cmd.io_redirs) |io_redirs|
-        std.ArrayList(IORedir).fromOwnedSlice(parser.allocator, io_redirs)
+        std.ArrayList(IORedir).fromOwnedSlice(parser.arena.allocator(), io_redirs)
     else
-        std.ArrayList(IORedir).init(parser.allocator);
+        std.ArrayList(IORedir).init(parser.arena.allocator());
 
     defer io_redir_array.deinit();
 
@@ -671,12 +674,12 @@ fn cmdArgs(parser: *Parser, cmd: *ast.SimpleCommand) errors!void {
     }
 
     if (io_redir_array.items.len > 0) {
-        cmd.io_redirs = io_redir_array.toOwnedSlice();
+        cmd.io_redirs = try io_redir_array.toOwnedSlice();
     } else {
         cmd.io_redirs = null;
     }
     if (word_array.items.len > 0) {
-        cmd.args = word_array.toOwnedSlice();
+        cmd.args = try word_array.toOwnedSlice();
     }
 }
 
@@ -791,7 +794,7 @@ fn word(parser: *Parser) errors!?Word {
         return null;
     }
 
-    var word_array = std.ArrayList(Word).init(parser.allocator);
+    var word_array = std.ArrayList(Word).init(parser.arena.allocator());
     defer word_array.deinit();
 
     // TODO improve logic
@@ -821,14 +824,14 @@ fn word(parser: *Parser) errors!?Word {
         if (currentChar == '\\') {
             // TODO readnewline and \\
             n += 1;
-        } else if (isOperatorStart(currentChar) or std.ascii.isBlank(currentChar)) {
+        } else if (isOperatorStart(currentChar) or std.ascii.isWhitespace(currentChar)) {
             n -= 1;
             break;
         }
     }
 
     if (parser.read(n)) |str| {
-        try word_array.append((try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word());
+        try word_array.append((try ast.create(parser.arena.allocator(), ast.WordString, .{ .str = str })).word());
         parser.resetCurrentSymbol();
     }
 
@@ -837,8 +840,8 @@ fn word(parser: *Parser) errors!?Word {
     } else if (word_array.items.len == 1) {
         return word_array.items[0];
     } else {
-        return (try ast.create(parser.allocator, ast.WordList, .{
-            .items = word_array.toOwnedSlice(),
+        return (try ast.create(parser.arena.allocator(), ast.WordList, .{
+            .items = try word_array.toOwnedSlice(),
             .is_double_quoted = false,
         })).word();
     }
@@ -859,9 +862,9 @@ fn wordCommand(parser: *Parser, back_quotes: bool) !?Word {
         const closing_char = parser.readChar().?;
         std.debug.assert(closing_char == open_close_ch[1]);
 
-        var subparser = Parser.init(parser.allocator, buffer);
+        var subparser = Parser.init(parser.arena.allocator(), buffer);
         const sub_program = try subparser.parse();
-        return (try ast.create(parser.allocator, ast.WordCommand, .{
+        return (try ast.create(parser.arena.allocator(), ast.WordCommand, .{
             .program = sub_program,
             .is_back_quoted = back_quotes,
         })).word();
@@ -903,7 +906,7 @@ fn wordDollar(parser: *Parser) !?Word {
         };
 
         if (parser.readToken(name_size)) |name| {
-            return (try ast.create(parser.allocator, ast.WordParameter, .{ .name = name })).word();
+            return (try ast.create(parser.arena.allocator(), ast.WordParameter, .{ .name = name })).word();
         }
     }
 
@@ -916,7 +919,7 @@ fn wordDoubleQuotes(parser: *Parser) !?Word {
     const opening_char = parser.readChar().?;
     std.debug.assert(opening_char == '"');
 
-    var word_array = std.ArrayList(Word).init(parser.allocator);
+    var word_array = std.ArrayList(Word).init(parser.arena.allocator());
     defer word_array.deinit();
 
     while (parser.peekChar()) |currentChar| {
@@ -948,7 +951,7 @@ fn wordDoubleQuotes(parser: *Parser) !?Word {
                 }
             }
             if (parser.read(n)) |str| { // TODO consider re-usage of wordString
-                const word_string = (try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word();
+                const word_string = (try ast.create(parser.arena.allocator(), ast.WordString, .{ .str = str })).word();
                 try word_array.append(word_string);
             }
         }
@@ -956,14 +959,14 @@ fn wordDoubleQuotes(parser: *Parser) !?Word {
 
     const closing_char = parser.readChar().?;
     std.debug.assert(closing_char == '"');
-    return (try ast.create(parser.allocator, ast.WordList, .{
-        .items = word_array.toOwnedSlice(),
+    return (try ast.create(parser.arena.allocator(), ast.WordList, .{
+        .items = try word_array.toOwnedSlice(),
         .is_double_quoted = true,
     })).word();
 }
 
-fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
-    var word_array = std.ArrayList(Word).init(parser.allocator);
+fn wordList(parser: *Parser, word_function: *const fn (*Parser) errors!?Word) !?Word {
+    var word_array = std.ArrayList(Word).init(parser.arena.allocator());
     defer word_array.deinit();
 
     while (try word_function(parser)) |word_value| {
@@ -972,14 +975,14 @@ fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
         var n: usize = 0;
         while (parser.peek(n + 1)) |strPeek| : (n += 1) {
             const peekCh = strPeek[n];
-            if (!std.ascii.isBlank(peekCh)) {
+            if (!std.ascii.isWhitespace(peekCh)) {
                 break;
             }
         }
 
         if (n > 0) {
             const str = parser.read(n).?;
-            try word_array.append((try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word());
+            try word_array.append((try ast.create(parser.arena.allocator(), ast.WordString, .{ .str = str })).word());
         } else {
             break;
         }
@@ -990,8 +993,8 @@ fn wordList(parser: *Parser, word_function: fn (*Parser) errors!?Word) !?Word {
     } else if (word_array.items.len == 1) {
         return word_array.items[0];
     } else {
-        return (try ast.create(parser.allocator, ast.WordList, .{
-            .items = word_array.toOwnedSlice(),
+        return (try ast.create(parser.arena.allocator(), ast.WordList, .{
+            .items = try word_array.toOwnedSlice(),
             .is_double_quoted = false,
         })).word();
     }
@@ -1057,7 +1060,7 @@ fn wordParameterExpression(parser: *Parser) !?Word {
     const closing_char = parser.readChar().?;
     std.debug.assert(closing_char == '}');
 
-    return (try ast.create(parser.allocator, ast.WordParameter, .{
+    return (try ast.create(parser.arena.allocator(), ast.WordParameter, .{
         .name = name,
         .arg = arg,
         .op = param_op,
@@ -1074,7 +1077,7 @@ fn wordSingleQuotes(parser: *Parser) !?Word {
         const closing_char = parser.readChar().?;
         std.debug.assert(closing_char == '\'');
 
-        return (try ast.create(parser.allocator, ast.WordString, .{
+        return (try ast.create(parser.arena.allocator(), ast.WordString, .{
             .str = str,
             .is_single_quoted = true,
         })).word();
@@ -1087,7 +1090,7 @@ fn wordSingleQuotes(parser: *Parser) !?Word {
 fn wordString(parser: *Parser) !?Word {
     const len = parser.peekWordSize();
     if (parser.readToken(len)) |str| {
-        return (try ast.create(parser.allocator, ast.WordString, .{ .str = str })).word();
+        return (try ast.create(parser.arena.allocator(), ast.WordString, .{ .str = str })).word();
     }
     return null;
 }
@@ -1118,7 +1121,7 @@ fn peekWordSize(parser: *Parser) u8 {
             '$', '`', '\'', '"' => return 0,
             '\\' => n += 1,
             else => {
-                if (isOperatorStart(ch) or std.ascii.isBlank(ch)) {
+                if (isOperatorStart(ch) or std.ascii.isWhitespace(ch)) {
                     break;
                 }
             },
@@ -1138,7 +1141,7 @@ fn peekNameSize(parser: *Parser) u8 {
     // TODO test, maybe add in_brace param bool
     while (parser.peek(n + 1)) |strPeek| : (n += 1) {
         const ch = strPeek[n];
-        if ((ch != '_' and !std.ascii.isAlNum(ch)) or
+        if ((ch != '_' and !std.ascii.isAlphanumeric(ch)) or
             (n == 0 and std.ascii.isDigit(ch)))
         {
             break;
@@ -1205,7 +1208,7 @@ fn consumeToken(parser: *Parser, str: []const u8) bool {
         return false;
     }
 
-    if (str.len == 1 and !std.ascii.isAlpha(str[0])) {
+    if (str.len == 1 and !std.ascii.isAlphabetic(str[0])) {
         if (parser.peekChar() != str[0]) {
             return false;
         }
@@ -1311,7 +1314,7 @@ fn readSymbol(parser: *Parser) void {
                     parser.currentSymbol = sym;
                 }
             }
-        } else if (std.ascii.isBlank(c)) {
+        } else if (std.ascii.isWhitespace(c)) {
             _ = parser.readChar();
             parser.readSymbol();
             return;

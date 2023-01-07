@@ -19,7 +19,7 @@ test "Parse test script" {
 
     var parser = Parser.init(testing.allocator, script);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const pipeline = program.body[0].and_or_cmd_list.cast(.PIPELINE).?;
     try testing.expect(pipeline.commands.len == 3);

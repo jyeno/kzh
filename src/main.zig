@@ -23,9 +23,9 @@ pub fn main() anyerror!u8 {
         const leaked = gpa.deinit();
         if (leaked) std.debug.print("Memory leaked.\n", .{});
     }
-    var allocator = gpa.allocator();
-    // var stack_alloc = std.heap.stackFallback(2048, gpa.allocator());
-    // var allocator = stack_alloc.get();
+    // var allocator = gpa.allocator();
+    var stack_alloc = std.heap.stackFallback(8096, gpa.allocator());
+    var allocator = stack_alloc.get();
 
     var ctl = jobs.JobController.init(allocator);
     try initDefaultConf(&ctl, interative_mode);
@@ -51,7 +51,6 @@ pub fn main() anyerror!u8 {
 fn initDefaultConf(ctl: *jobs.JobController, interative_mode: bool) !void {
     errdefer ctl.deinit();
     _ = interative_mode;
-    _ = ctl;
     const keys_values = [_][]const []const u8{
         &.{ "autoload", "typeset", "-fu" },
         &.{ "functions", "typeset", "-f" },
@@ -104,16 +103,10 @@ fn kzhLoop(ctl: *jobs.JobController) !void {
                 std.debug.print("loop err: {}\n", .{err});
                 continue;
             };
-            defer program.deinit(ctl.allocator);
-
-            // TODO remove, for debug only
-            if (mem.eql(u8, input, "exit")) {
-                break;
-            }
+            defer parser.deinit();
 
             // TODO consider, should just use try here or should errors be treated inside of the job_ctl?
             last_status = try ctl.run(program);
-            // break;
         }
     }
 }

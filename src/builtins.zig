@@ -7,7 +7,7 @@ const std = @import("std");
 const printError = std.debug.print;
 const JobController = @import("jobs.zig").JobController;
 
-pub const builtins = std.ComptimeStringMap(fn (*JobController, []const []const u8) u8, .{
+pub const builtins = std.ComptimeStringMap(*const fn (*JobController, []const []const u8) u8, .{
     .{ "builtin", @import("builtins/builtin.zig").kzhBuiltin },
     .{ "cd", @import("builtins/cd.zig").kzhCd }, // not completed
     .{ "echo", @import("builtins/echo.zig").kzhEcho }, // not completed

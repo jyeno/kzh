@@ -56,9 +56,9 @@ fn execWord(ctl: *jobs.JobController, word_arg: ast.Word, result: *u32) anyerror
                     try intern_char_array.ensureUnusedCapacity(str.len);
                     for (str) |char| intern_char_array.appendAssumeCapacity(char);
                 }
-                break :list WordResult{ .single_str = intern_char_array.toOwnedSlice() };
+                break :list WordResult{ .single_str = try intern_char_array.toOwnedSlice() };
             } else {
-                break :list WordResult{ .multiple_str = word_array.toOwnedSlice() };
+                break :list WordResult{ .multiple_str = try word_array.toOwnedSlice() };
             }
         },
         .PARAMETER => unreachable,

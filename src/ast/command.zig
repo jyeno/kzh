@@ -10,7 +10,7 @@ const csi = esc ++ "[";
 pub const Command = struct {
     impl: *anyopaque,
     kind: CommandKind,
-    deinitFn: fn (*anyopaque, mem.Allocator) void,
+    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     /// Command type representation
     pub const CommandKind = enum {
@@ -22,7 +22,7 @@ pub const Command = struct {
         CASE_DECL,
         FUNC_DECL,
 
-        pub fn Type(self: CommandKind) type {
+        pub fn Type(comptime self: CommandKind) type {
             return switch (self) {
                 .SIMPLE_COMMAND => SimpleCommand,
                 .CMD_GROUP => CmdGroup,

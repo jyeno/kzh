@@ -29,6 +29,7 @@ fn commandListArray(ctl: *jobs.JobController, cmd_list_array: []ast.CommandList)
 }
 
 fn andOrCmd(ctl: *jobs.JobController, and_or_cmd: ast.AndOrCmdList) anyerror!u32 {
+    // TODO this is a use case for union + enum
     return switch (and_or_cmd.kind) {
         .PIPELINE => try pipeline(ctl, and_or_cmd.cast(.PIPELINE).?),
         .BINARY_OP => blk: {
@@ -134,7 +135,7 @@ fn command(ctl: *jobs.JobController, cmd: Command) anyerror!u32 {
                 } else {
                     _ = try expandWord(ctl, word_name, &argv);
                 }
-                return try runProcess(ctl, argv.toOwnedSlice());
+                return try runProcess(ctl, try argv.toOwnedSlice());
             }
             unreachable; // TODO include others possibilities of a simple command
         },
@@ -273,5 +274,5 @@ fn applyProcRedirects(ctl: *jobs.JobController, io_redirs: []IORedir) !void {
         };
         arr.appendAssumeCapacity(savedFd);
     }
-    ctl.saved_fds = arr.toOwnedSlice();
+    ctl.saved_fds = try arr.toOwnedSlice();
 }

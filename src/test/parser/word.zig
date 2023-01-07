@@ -12,7 +12,7 @@ test "Parse Word Command" {
     const command_string1 = "ps_mem -p -s $(pgrep kzh)";
     var parser1 = Parser.init(testing.allocator, command_string1);
     const program1 = try parser1.parse();
-    defer program1.deinit(testing.allocator);
+    defer parser1.deinit();
 
     const simple_command1 = program1.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command1.name != null);
@@ -44,7 +44,7 @@ test "Parse Word Command" {
     const command_string2 = "ls `pwd`";
     var parser2 = Parser.init(testing.allocator, command_string2);
     const program2 = try parser2.parse();
-    defer program2.deinit(testing.allocator);
+    defer parser2.deinit();
 
     const simple_command2 = program2.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command2.name != null);
@@ -69,7 +69,7 @@ test "Parse Word Parameter" {
     const command_string = "echo $HOME ${NOTHOME:-not home} ${VAR:=PWD} ${VAR:+HOME} ${NOTHOME:?VAR} ${#HOME} ${SOMESCRIPT1#.sh} ${SOMESCRIPT22##.sh} ${SOMESCRIPT333%.sh} ${S0MESCRIPT4%%.sh}";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);
@@ -131,7 +131,7 @@ test "Parse Word Quotes and backslash" {
     const command_string = "echo \"home $HOME dir\" '$NOTVAR' word\\ with\\ spaces";
     var parser = Parser.init(testing.allocator, command_string);
     const program = try parser.parse();
-    defer program.deinit(testing.allocator);
+    defer parser.deinit();
 
     const simple_command = program.body[0].and_or_cmd_list.cast(.PIPELINE).?.commands[0].cast(.SIMPLE_COMMAND).?;
     try testing.expect(simple_command.args != null);
