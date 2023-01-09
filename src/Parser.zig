@@ -35,7 +35,7 @@
 //!
 //! %token  In
 //!        'in'
-
+// TODO: create an arena to Program, then
 // TODO: create errors instead of only returning null on some functions
 const std = @import("std");
 const mem = std.mem;
@@ -313,9 +313,6 @@ fn compoundList(parser: *Parser, endToken: ?[]const u8) errors!?[]ast.CommandLis
     parser.linebreak();
     var cmd_list_array = std.ArrayList(ast.CommandList).init(parser.arena.allocator());
     defer {
-        for (cmd_list_array.items) |cmd_list| {
-            cmd_list.deinit(parser.arena.allocator());
-        }
         cmd_list_array.deinit();
     }
 
@@ -440,7 +437,6 @@ fn caseDeclaration(parser: *Parser) errors!?Command {
                 .items = try items.toOwnedSlice(),
             })).cmd();
         }
-        word_value.deinit(parser.arena.allocator());
     }
     return null;
 }
@@ -468,12 +464,8 @@ fn ifDeclaration(parser: *Parser) errors!?Command {
     }
     // TODO correctly treat errors, readlines if needed
     if (try parser.compoundList("then")) |condition| {
-        errdefer {
-            for (condition) |cmd_list| {
-                cmd_list.deinit(parser.arena.allocator());
-            }
-            parser.arena.allocator().free(condition);
-        }
+        errdefer parser.arena.allocator().free(condition);
+
         if (try parser.compoundList(null)) |body| {
             const else_decl = try parser.elseDeclaration();
 
@@ -496,19 +488,11 @@ fn elseDeclaration(parser: *Parser) errors!?Command {
     // TODO have errors
     if (parser.consumeToken("elif")) {
         if (try parser.compoundList("then")) |condition| {
-            errdefer {
-                for (condition) |cmd_list| {
-                    cmd_list.deinit(parser.arena.allocator());
-                }
-                parser.arena.allocator().free(condition);
-            }
+            errdefer parser.arena.allocator().free(condition);
+
             if (try parser.compoundList(null)) |body| {
-                errdefer {
-                    for (body) |cmd_list| {
-                        cmd_list.deinit(parser.arena.allocator());
-                    }
-                    parser.arena.allocator().free(body);
-                }
+                errdefer parser.arena.allocator().free(body);
+
                 const else_decl = try parser.elseDeclaration();
                 return (try ast.create(parser.arena.allocator(), ast.IfDecl, .{
                     .condition = condition,
@@ -541,12 +525,8 @@ fn loopDeclaration(parser: *Parser) errors!?Command {
     }
 
     if (try parser.compoundList(null)) |condition| {
-        errdefer {
-            for (condition) |cmd_list| {
-                cmd_list.deinit(parser.arena.allocator());
-            }
-            parser.arena.allocator().free(condition);
-        }
+        errdefer parser.arena.allocator().free(condition);
+
         if (try parser.doGroup()) |body| {
             return (try ast.create(parser.arena.allocator(), ast.LoopDecl, .{
                 .condition = condition,

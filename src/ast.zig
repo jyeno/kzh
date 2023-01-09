@@ -22,35 +22,18 @@ pub fn create(allocator: mem.Allocator, comptime T: type, data: T) !*T {
 /// It has a body that contains one or more `CommandList`s.
 pub const Program = struct {
     body: []CommandList,
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self: *Program, allocator: mem.Allocator) void {
-        for (self.body) |command_list| {
-            command_list.deinit(allocator);
-        }
-        allocator.free(self.body);
-        allocator.destroy(self);
-    }
 };
 
 /// Command List representation
 pub const CommandList = struct {
     and_or_cmd_list: AndOrCmdList,
     is_async: bool = false,
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self: CommandList, allocator: mem.Allocator) void {
-        self.and_or_cmd_list.deinit(allocator);
-    }
 };
 
 /// And Or Command List representation
 pub const AndOrCmdList = struct {
     impl: *anyopaque,
     kind: AndOrCmdListKind,
-    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     /// And Or Command List type representation
     pub const AndOrCmdListKind = enum(u1) {
@@ -75,11 +58,6 @@ pub const AndOrCmdList = struct {
             return null;
         }
     }
-
-    /// Calls the correct deinitializer of the `AndOrCmdList` type
-    pub fn deinit(and_or_cmd: *const AndOrCmdList, allocator: mem.Allocator) void {
-        and_or_cmd.deinitFn(and_or_cmd.impl, allocator);
-    }
 };
 
 /// Pipeline representation
@@ -91,19 +69,7 @@ pub const Pipeline = struct {
         return .{
             .impl = self,
             .kind = .PIPELINE,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*Pipeline, @alignCast(@alignOf(Pipeline), self_void));
-        for (self.commands) |cmd| {
-            cmd.deinit(allocator);
-        }
-        allocator.free(self.commands);
-        allocator.destroy(self);
     }
 };
 
@@ -124,16 +90,6 @@ pub const BinaryOp = struct {
         return .{
             .impl = self,
             .kind = .BINARY_OP,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*BinaryOp, @alignCast(@alignOf(BinaryOp), self_void));
-        self.left.deinit(allocator);
-        self.right.deinit(allocator);
-        allocator.destroy(self);
     }
 };

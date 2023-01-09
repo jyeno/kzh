@@ -11,7 +11,6 @@ const csi = esc ++ "[";
 pub const Word = struct {
     impl: *anyopaque,
     kind: WordKind,
-    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     pub const WordKind = enum {
         STRING,
@@ -38,10 +37,6 @@ pub const Word = struct {
             return null;
         }
     }
-
-    pub fn deinit(word: *const Word, allocator: mem.Allocator) void {
-        word.deinitFn(word.impl, allocator);
-    }
 };
 
 /// Word String representation
@@ -52,14 +47,10 @@ pub const WordString = struct {
     is_single_quoted: bool = false,
 
     pub fn word(self: *WordString) Word {
-        return .{ .impl = self, .kind = .STRING, .deinitFn = deinit };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        var self = @ptrCast(*WordString, @alignCast(@alignOf(WordString), self_void));
-        allocator.destroy(self);
+        return .{
+            .impl = self,
+            .kind = .STRING,
+        };
     }
 };
 
@@ -102,19 +93,7 @@ pub const WordParameter = struct {
         return .{
             .impl = self,
             .kind = .PARAMETER,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*WordParameter, @alignCast(@alignOf(WordParameter), self_void));
-        defer allocator.destroy(self);
-
-        if (self.arg) |word_arg| {
-            word_arg.deinit(allocator);
-        }
     }
 };
 
@@ -127,18 +106,7 @@ pub const WordCommand = struct {
         return .{
             .impl = self,
             .kind = .COMMAND,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        var self = @ptrCast(*WordCommand, @alignCast(@alignOf(WordCommand), self_void));
-        if (self.program) |prog| {
-            prog.deinit(allocator);
-        }
-        allocator.destroy(self);
     }
 };
 
@@ -150,16 +118,7 @@ pub const WordArithm = struct {
         return .{
             .impl = self,
             .kind = .ARITHMETIC,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        var self = @ptrCast(*WordArithm, @alignCast(@alignOf(WordArithm), self_void));
-        self.body.deinit(allocator);
-        allocator.destroy(self);
     }
 };
 
@@ -172,18 +131,6 @@ pub const WordList = struct {
         return .{
             .impl = self,
             .kind = .LIST,
-            .deinitFn = deinit,
         };
-    }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        var self = @ptrCast(*WordList, @alignCast(@alignOf(WordList), self_void));
-        for (self.items) |item| {
-            item.deinit(allocator);
-        }
-        allocator.free(self.items);
-        allocator.destroy(self);
     }
 };

@@ -10,7 +10,6 @@ const csi = esc ++ "[";
 pub const Command = struct {
     impl: *anyopaque,
     kind: CommandKind,
-    deinitFn: *const fn (*anyopaque, mem.Allocator) void,
 
     /// Command type representation
     pub const CommandKind = enum {
@@ -42,12 +41,6 @@ pub const Command = struct {
             return null;
         }
     }
-
-    /// Deinitializes the memory used, takes an `allocator`, it should be the one
-    /// that was used to allocate the data
-    pub fn deinit(cmd: *const Command, allocator: mem.Allocator) void {
-        cmd.deinitFn(cmd.impl, allocator);
-    }
 };
 
 /// Simple Command representation
@@ -61,37 +54,7 @@ pub const SimpleCommand = struct {
         return .{
             .impl = self,
             .kind = .SIMPLE_COMMAND,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*SimpleCommand, @alignCast(@alignOf(SimpleCommand), self_void));
-        defer allocator.destroy(self);
-
-        if (self.name) |word_name| {
-            word_name.deinit(allocator);
-        }
-        if (self.args) |args| {
-            defer allocator.free(args);
-            for (args) |arg| {
-                arg.deinit(allocator);
-            }
-        }
-        if (self.assigns) |assignments| {
-            defer allocator.free(assignments);
-            for (assignments) |assign| {
-                if (assign.value) |val| {
-                    val.deinit(allocator);
-                }
-            }
-        }
-        if (self.io_redirs) |io_redirects| {
-            defer allocator.free(io_redirects);
-            for (io_redirects) |io_redir| {
-                io_redir.name.deinit(allocator);
-            }
-        }
     }
 
     /// Checks whenether the simple command is empty, returns true if it
@@ -114,20 +77,7 @@ pub const CmdGroup = struct {
         return .{
             .impl = self,
             .kind = .CMD_GROUP,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*CmdGroup, @alignCast(@alignOf(CmdGroup), self_void));
-        defer {
-            allocator.free(self.body);
-            allocator.destroy(self);
-        }
-
-        for (self.body) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
     }
 };
 
@@ -140,25 +90,7 @@ pub const IfDecl = struct {
         return .{
             .impl = self,
             .kind = .IF_DECL,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*IfDecl, @alignCast(@alignOf(IfDecl), self_void));
-        defer {
-            allocator.free(self.condition);
-            allocator.free(self.body);
-            allocator.destroy(self);
-        }
-
-        for (self.condition) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
-        for (self.body) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
-        if (self.else_decl) |else_part| else_part.deinit(allocator);
     }
 };
 
@@ -173,25 +105,7 @@ pub const ForDecl = struct {
         return .{
             .impl = self,
             .kind = .FOR_DECL,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*ForDecl, @alignCast(@alignOf(ForDecl), self_void));
-        defer {
-            allocator.free(self.body);
-            allocator.destroy(self);
-        }
-        if (self.list) |word_list| {
-            defer allocator.free(word_list);
-            for (word_list) |word| {
-                word.deinit(allocator);
-            }
-        }
-        for (self.body) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
     }
 };
 
@@ -209,23 +123,7 @@ pub const LoopDecl = struct {
         return .{
             .impl = self,
             .kind = .LOOP_DECL,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*LoopDecl, @alignCast(@alignOf(LoopDecl), self_void));
-        defer {
-            allocator.free(self.body);
-            allocator.free(self.condition);
-            allocator.destroy(self);
-        }
-        for (self.condition) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
-        for (self.body) |cmd_list| {
-            cmd_list.deinit(allocator);
-        }
     }
 };
 
@@ -242,28 +140,7 @@ pub const CaseDecl = struct {
         return .{
             .impl = self,
             .kind = .CASE_DECL,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*CaseDecl, @alignCast(@alignOf(CaseDecl), self_void));
-        defer {
-            allocator.free(self.items);
-            allocator.destroy(self);
-        }
-
-        self.word.deinit(allocator);
-        for (self.items) |item| {
-            for (item.patterns) |pattern| {
-                pattern.deinit(allocator);
-            }
-            allocator.free(item.patterns);
-            for (item.body) |cmd_list| {
-                cmd_list.deinit(allocator);
-            }
-            allocator.free(item.body);
-        }
     }
 };
 
@@ -277,23 +154,7 @@ pub const FuncDecl = struct {
         return .{
             .impl = self,
             .kind = .FUNC_DECL,
-            .deinitFn = deinit,
         };
-    }
-
-    pub fn deinit(self_void: *anyopaque, allocator: mem.Allocator) void {
-        const self = @ptrCast(*FuncDecl, @alignCast(@alignOf(FuncDecl), self_void));
-        defer {
-            allocator.free(self.name);
-            allocator.destroy(self);
-        }
-        self.body.deinit(allocator);
-        if (self.io_redirs) |io_redirects| {
-            defer allocator.free(io_redirects);
-            for (io_redirects) |redir| {
-                redir.name.deinit(allocator);
-            }
-        }
     }
 };
 

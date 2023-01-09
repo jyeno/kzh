@@ -114,7 +114,7 @@ fn kzhLoop(ctl: *jobs.JobController) !void {
 fn internalExec(ctl: *jobs.JobController, input: []const u8) !u32 {
     var parser = Parser.init(ctl.allocator, input);
     var program = try parser.parse();
-    defer program.deinit(ctl.allocator);
+    defer parser.deinit();
     // TODO use kzhExec
 
     return try ctl.run(program);
